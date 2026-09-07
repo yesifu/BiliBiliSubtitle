@@ -11,16 +11,17 @@ const settingKeys = [
   'asrProvider', 'asrBaseUrl', 'asrApiKey', 'asrModel', 'asrMode',
   'translationBaseUrl', 'translationApiKey', 'translationModel',
   'targetLanguage', 'sourceLanguage', 'translateEnabled',
-  'preferNativeSubtitles', 'bilingual', 'fontSize', 'bottomOffset',
+  'preferNativeSubtitles', 'bilingual', 'fontSize', 'bottomOffset', 'backgroundTransparency',
   'autoEnabled', 'followNext',
 ];
 const booleanKeys = new Set(['translateEnabled', 'preferNativeSubtitles', 'bilingual', 'autoEnabled', 'followNext']);
-const numberKeys = new Set(['fontSize', 'bottomOffset']);
+const numberKeys = new Set(['fontSize', 'bottomOffset', 'backgroundTransparency']);
 const fieldNames = {
   asrBaseUrl: '识别 API 基础地址', translationBaseUrl: '翻译 API 基础地址',
   asrModel: '识别模型', asrMode: '音频识别模式', translationModel: '翻译模型',
   targetLanguage: '翻译目标语言', sourceLanguage: '音频语言',
   fontSize: '字幕字号', bottomOffset: '距底部距离', asrConcurrency: '识别并发数',
+  backgroundTransparency: '背景透明度',
   chunkSeconds: 'WAV 小切片时长', translationBatchSize: '翻译批量大小',
   compressedChunkSeconds: '压缩分段时长', asrTimeoutSeconds: '识别请求超时', translationTimeoutSeconds: '翻译请求超时',
   maxAudioMB: '音频大小上限', maxDurationMinutes: '音频时长上限', collectionLimit: '合集处理上限',
@@ -291,6 +292,10 @@ function updateDerivedUI() {
   const offsetValue = $('bottomOffset').valueAsNumber;
   const offset = Number.isFinite(offsetValue) ? offsetValue : DEFAULT_SETTINGS.bottomOffset;
   preview.style.setProperty('--subtitle-font-size', `${size}px`);
+  const transparency = $('backgroundTransparency').valueAsNumber;
+  preview.style.setProperty('--subtitle-background-alpha', `${100 - transparency}%`);
+  $('backgroundTransparency-value').textContent = `${transparency}%`;
+  $('backgroundTransparency').setAttribute('aria-valuetext', `${transparency}%${transparency === 100 ? '，全透明' : ''}`);
   preview.style.setProperty('--subtitle-bottom', `${Math.min(88, Math.max(30, offset * 0.5 + 20))}px`);
   $('preview-translation').hidden = !translationEnabled;
   $('preview-original').hidden = translationEnabled && !$('bilingual').checked;

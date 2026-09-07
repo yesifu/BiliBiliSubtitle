@@ -60,9 +60,17 @@ try {
   await options.locator('#fontSize-error').waitFor({state:'visible'});
   assert.equal(await options.locator('#fontSize').evaluate(el=>el===document.activeElement),true);
   await options.locator('#fontSize').fill('22');
+  await options.locator('#backgroundTransparency').evaluate(el=>{el.value='80';el.dispatchEvent(new Event('input',{bubbles:true}));});
+  assert.equal(await options.locator('#backgroundTransparency-value').textContent(),'80%');
+  assert.equal(await options.locator('#preview-original').evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(12, 13, 16, 0.2)');
+  await options.setViewportSize({width:390,height:844});
+  assert.equal(await options.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
+  await options.screenshot({path:path.join(artifacts,'options-transparency-narrow.png'),fullPage:true});
+  await options.setViewportSize({width:1200,height:900});
   await options.locator('#save-settings').click();
   await options.waitForFunction(()=>document.querySelector('#save-status').dataset.tone==='success');
   assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings.asrApiKey),'test-key-only');
+  assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings.backgroundTransparency),80);
   assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings.translationModel),'Qwen/Qwen2.5-7B-Instruct');
   await options.route('**/v1/models?*',async route=>{
     assert.equal(route.request().headers().authorization,'Bearer test-key-only');
@@ -217,6 +225,49 @@ try {
   await videoPage.locator('#bst-ai-subtitle-host .translation').waitFor({state:'visible'});
   assert.match(await videoPage.locator('#bst-ai-subtitle-host .translation').textContent(),/中文字幕/);
   await videoPage.screenshot({path:path.join(artifacts,'player-subtitles.png')});
+  // Display changes must persist independently of subtitle availability and recognition cache.
+  const displaySettings=(await popup.evaluate(()=>chrome.runtime.sendMessage({type:'GET_DISPLAY_SETTINGS'}))).data;
+  assert.deepEqual(displaySettings,{backgroundTransparency:24});
+  const savedBeforeDisplay=await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings);
+  await videoPage.getByRole('button',{name:'字幕显示设置',exact:true}).click();
+  const transparencySlider=videoPage.getByRole('slider',{name:'背景透明度',exact:true});
+  await transparencySlider.focus();
+  await transparencySlider.press('End');
+  assert.equal(await videoPage.locator('.caption-line.translation').evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(12, 13, 16, 0)');
+  assert.equal(await videoPage.locator('.caption-line.source').evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(12, 13, 16, 0)');
+  assert.equal(await videoPage.locator('.captions').evaluate(el=>getComputedStyle(el).opacity),'1');
+  assert.equal(await videoPage.locator('.caption-line.translation').evaluate(el=>getComputedStyle(el).opacity),'1');
+  await options.waitForFunction(()=>document.querySelector('#backgroundTransparency').value==='100');
+  await transparencySlider.press('Home');
+  await options.waitForFunction(()=>document.querySelector('#backgroundTransparency').value==='0');
+  assert.equal(await videoPage.locator('.caption-line.translation').evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(12, 13, 16)');
+  const otherVideo=await context.newPage();
+  await otherVideo.goto(videoUrl+'?p=2');
+  await otherVideo.waitForFunction(()=>document.querySelector('#bst-ai-subtitle-host')?.shadowRoot.querySelector('input[type="range"]')?.value==='0');
+  assert.equal(await otherVideo.locator('.captions').isVisible(),false);
+  await options.evaluate(async()=>{
+    const {loadSettings,saveSettings}=await import('./src/shared/settings.js');
+    await saveSettings({...await loadSettings(),backgroundTransparency:80});
+  });
+  for(const page of [videoPage,otherVideo]) await page.waitForFunction(()=>document.querySelector('#bst-ai-subtitle-host')?.shadowRoot.querySelector('input[type="range"]')?.value==='80');
+  await otherVideo.close();
+  await videoPage.reload();
+  await videoPage.waitForFunction(()=>document.querySelector('#bst-ai-subtitle-host')?.shadowRoot.querySelector('input[type="range"]')?.value==='80');
+  await videoPage.evaluate(async data=>{
+    const video=document.querySelector('video');
+    video.src=URL.createObjectURL(new Blob([Uint8Array.from(atob(data),c=>c.charCodeAt(0))],{type:'audio/wav'}));
+    await new Promise(resolve=>video.addEventListener('loadedmetadata',resolve,{once:true}));
+    video.currentTime=1;
+  },wav.toString('base64'));
+  await videoPage.locator('.caption-line.translation').waitFor({state:'visible'});
+  await videoPage.getByRole('button',{name:'字幕显示设置',exact:true}).click();
+  assert.equal(await videoPage.locator('.caption-line.translation').evaluate(el=>getComputedStyle(el).backgroundColor),'rgba(12, 13, 16, 0.2)');
+  await videoPage.screenshot({path:path.join(artifacts,'player-transparency.png')});
+  await videoPage.getByRole('button',{name:'恢复显示默认值',exact:true}).click();
+  await options.waitForFunction(()=>document.querySelector('#backgroundTransparency').value==='24');
+  assert.deepEqual(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings),savedBeforeDisplay);
+  assert.equal(asrCalls,3);assert.equal(translationCalls,3);
+  console.log('Subtitle transparency: live background only, keyboard endpoints, options save/sync, reload, uncached video and reset verified without ASR or translation requests.');
   await videoPage.evaluate(()=>{document.querySelector('video').currentTime=17.99;});
   await videoPage.evaluate(()=>{history.pushState({},'',location.pathname+'?p=2');});
   await videoPage.waitForFunction(()=>!document.querySelector('#bst-ai-subtitle-host') || document.querySelector('#bst-ai-subtitle-host').shadowRoot.querySelector('.captions').hidden);

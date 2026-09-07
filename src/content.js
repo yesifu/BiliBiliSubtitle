@@ -27,7 +27,7 @@
       font-weight: 600; text-shadow: 0 1px 3px #000, 0 0 2px #000;
       pointer-events: none; overflow-wrap: anywhere; }
     .caption-line { max-width: 100%; white-space: pre-line; padding: 3px 12px;
-      border-radius: 5px; background: rgb(12 13 16 / 76%); box-decoration-break: clone; }
+      border-radius: 5px; background: rgb(12 13 16 / var(--bst-background-alpha, 76%)); box-decoration-break: clone; }
     .source { font-size: .73em; font-weight: 400; color: #e7e4de; }
     .controls { position: absolute; top: 16px; right: 16px; pointer-events: auto;
       max-width: calc(100% - 32px); }
@@ -55,6 +55,10 @@
     .stepper { display: flex; align-items: center; gap: 4px; }
     .stepper button { width: 28px; height: 28px; font-size: 18px; border-radius: 4px; }
     .stepper button:hover { background: #403b35; }
+    .transparency-row { flex-wrap: wrap; padding-top: 9px; gap: 2px 10px; }
+    .transparency-row input { width: 100%; height: 24px; margin: 0; accent-color: #ed7777; cursor: pointer; }
+    .transparency-row input:focus-visible { outline: 2px solid #ff8888; outline-offset: 2px; }
+    .transparency-row output { min-width: 36px; text-align: right; }
     output { display: inline-block; min-width: 51px; text-align: center; font-size: 12px;
       color: #f8efe1; font-variant-numeric: tabular-nums; }
     .hint { color: #a69f94; font-size: 10px; margin: 6px 0 12px; }
@@ -71,6 +75,8 @@
     context: null, track: null, cues: [], maxEnds: [], loading: false, error: "",
     video: null, player: null, host: null, ui: null, unbind: null,
     enabled: true, delay: 0, fontOverride: null, adPlaying: false,
+    backgroundTransparency: 24, displayRevision: 0, displayPending: false,
+    displayHint: "100% 全透明，自动保存。",
     raf: 0, mutationTimer: 0, settingsTimer: 0, poll: 0,
     lastCaptionKey: "", lastStatus: "", anchorOwned: false,
   };
@@ -146,6 +152,7 @@
     clearTrack();
     detachPlayer();
     if (!state.loading) return;
+    void loadDisplaySettings();
     reconcilePlayer();
     try {
       const context = await request({ type: "GET_VIDEO_CONTEXT", url });
@@ -279,11 +286,32 @@
       () => adjustDelay(-0.5), () => adjustDelay(0.5));
     const font = stepper("字体大小", "缩小字幕字体", "放大字幕字体",
       () => adjustFont(-2), () => adjustFont(2));
-    panel.append(element("p", "hint", "正值让字幕晚出现；此处调整仅用于本页。"));
+    panel.append(element("p", "hint", "延迟正值让字幕晚出现；延迟和字号仅用于本页。"));
+    const transparencyRow = element("div", "row transparency-row");
+    const transparencyLabel = element("label", "row-label", "背景透明度");
+    transparencyLabel.htmlFor = "bst-background-transparency";
+    const transparency = element("input");
+    transparency.id = "bst-background-transparency";
+    transparency.type = "range";
+    transparency.min = "0";
+    transparency.max = "100";
+    transparency.step = "1";
+    const transparencyOutput = element("output");
+    transparencyOutput.htmlFor = transparency.id;
+    const transparencyHint = element("p", "hint");
+    transparencyHint.id = "bst-transparency-hint";
+    transparencyHint.setAttribute("role", "status");
+    transparency.setAttribute("aria-describedby", transparencyHint.id);
+    transparency.addEventListener("input", () => previewTransparency(transparency.valueAsNumber));
+    transparency.addEventListener("change", () => { void saveTransparency(); });
+    transparencyRow.append(transparencyLabel, transparencyOutput, transparency);
+    panel.append(transparencyRow, transparencyHint);
     const footer = element("div", "footer");
     const reset = button("恢复显示默认值", "text-button", () => {
       state.delay = 0;
       state.fontOverride = null;
+      previewTransparency(24);
+      void saveTransparency();
       state.lastCaptionKey = "";
       applyPresentation();
       render();
@@ -320,7 +348,7 @@
     player.append(host);
     state.player = player;
     state.host = host;
-    state.ui = { surface, captions, translated, source, toggle, toggleStatus, settingsToggle, panel, status, delay, font };
+    state.ui = { surface, captions, translated, source, toggle, toggleStatus, settingsToggle, panel, status, delay, font, transparency, transparencyOutput, transparencyHint };
     state.lastCaptionKey = "";
     state.lastStatus = "";
     applyPresentation();
@@ -340,8 +368,45 @@
   function applyPresentation() {
     if (!state.ui) return;
     state.ui.surface.style.setProperty("--bst-font-size", `${fontSize()}px`);
+    state.ui.surface.style.setProperty("--bst-background-alpha", `${100 - state.backgroundTransparency}%`);
     const bottom = clamp(state.track?.settings?.bottomOffset, 0, 400, 62);
     state.ui.surface.style.setProperty("--bst-bottom", `min(${bottom}px, 65%)`);
+    updateControls();
+  }
+
+  async function loadDisplaySettings() {
+    if (state.destroyed || state.displayPending) return;
+    const revision = ++state.displayRevision;
+    try {
+      const settings = await request({ type: "GET_DISPLAY_SETTINGS" });
+      if (state.destroyed || revision !== state.displayRevision) return;
+      state.backgroundTransparency = clamp(settings.backgroundTransparency, 0, 100, 24);
+      applyPresentation();
+    } catch { /* Keep the current appearance if the extension is temporarily unavailable. */ }
+  }
+
+  function previewTransparency(value) {
+    ++state.displayRevision;
+    state.displayPending = true;
+    state.backgroundTransparency = Math.round(clamp(value, 0, 100, 24));
+    state.displayHint = "100% 全透明，松开自动保存。";
+    applyPresentation();
+  }
+
+  async function saveTransparency() {
+    const revision = state.displayRevision;
+    state.displayHint = "正在保存…";
+    updateControls();
+    try {
+      await request({ type: "SET_BACKGROUND_TRANSPARENCY", value: state.backgroundTransparency });
+      if (state.destroyed || revision !== state.displayRevision) return;
+      state.displayPending = false;
+      state.displayHint = "100% 全透明，已保存。";
+    } catch {
+      if (state.destroyed || revision !== state.displayRevision) return;
+      state.displayPending = false;
+      state.displayHint = "保存失败，请重新调整滑块重试。";
+    }
     updateControls();
   }
 
@@ -382,6 +447,10 @@
     ui.font.output.textContent = `${fontSize()} px`;
     ui.font.minus.disabled = fontSize() <= 14;
     ui.font.plus.disabled = fontSize() >= 56;
+    ui.transparency.value = String(state.backgroundTransparency);
+    ui.transparency.setAttribute("aria-valuetext", `${state.backgroundTransparency}%${state.backgroundTransparency === 100 ? "，全透明" : ""}`);
+    ui.transparencyOutput.textContent = `${state.backgroundTransparency}%`;
+    ui.transparencyHint.textContent = state.displayHint;
   }
 
   function hideCaptions() {
@@ -550,6 +619,7 @@
   });
 
   function scheduleSettingsReload() {
+    void loadDisplaySettings();
     state.autoVisit = '';
     void reportAutoVisit();
     clearTimeout(state.settingsTimer);
@@ -567,6 +637,7 @@
       message.bvid === state.context.bvid && String(message.cid) === String(state.context.cid)) {
       void loadTrack();
     } else if (message?.type === "SETTINGS_UPDATED") scheduleSettingsReload();
+    else if (message?.type === "DISPLAY_SETTINGS_UPDATED") void loadDisplaySettings();
     return false;
   }
 

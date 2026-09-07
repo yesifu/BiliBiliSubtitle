@@ -11,6 +11,7 @@ let starting=false;
 let cancellationRequested=false;
 let pendingJobId=null;
 let statusWrite=Promise.resolve();
+let displayWrite=Promise.resolve();
 const contextCache=new Map();
 const OFFSCREEN_URL=chrome.runtime.getURL('offscreen.html');
 const automatic=createAutoQueue({
@@ -81,9 +82,9 @@ async function context(url) {
   return data;
 }
 
-async function notifyTabs(message) {
+async function notifyTabs(message,excludeTabId) {
   const tabs=await chrome.tabs.query({url:'https://www.bilibili.com/*'});
-  await Promise.allSettled(tabs.map(tab=>chrome.tabs.sendMessage(tab.id,message)));
+  await Promise.allSettled(tabs.filter(tab=>tab.id!==excludeTabId).map(tab=>chrome.tabs.sendMessage(tab.id,message)));
 }
 
 async function startJob(message) {
@@ -143,11 +144,25 @@ async function trackWithDisplay(bvid,cid) {
     const transcript=await getCheckpoint(bvid,Number(cid),settings);
     if(transcript?.cues?.length) track={...transcript,bvid,cid:Number(cid),title:transcript.title || bvid,targetLanguage:'',cues:transcript.cues.map(c=>({...c,text:c.source || c.text}))};
   }
-  return track ? {...track,translationPending:settings.translateEnabled && !track.targetLanguage,settings:{bilingual:Boolean(track.targetLanguage)&&settings.bilingual,fontSize:settings.fontSize,bottomOffset:settings.bottomOffset}} : null;
+  return track ? {...track,translationPending:settings.translateEnabled && !track.targetLanguage,settings:{bilingual:Boolean(track.targetLanguage)&&settings.bilingual,fontSize:settings.fontSize,bottomOffset:settings.bottomOffset,backgroundTransparency:settings.backgroundTransparency}} : null;
 }
 
 async function handle(message,sender) {
   switch(message.type) {
+    case 'GET_DISPLAY_SETTINGS':
+      return {backgroundTransparency:(await loadSettings()).backgroundTransparency};
+    case 'SET_BACKGROUND_TRANSPARENCY': {
+      const isPlayer=sender.frameId===0 && sender.tab?.id && /^https:\/\/www\.bilibili\.com\/video\//.test(sender.url || '');
+      if(!isPlayer || !Number.isInteger(message.value) || message.value<0 || message.value>100) throw new Error('无效的字幕透明度。');
+      // Only this display preference can be changed by the player; never accept keys or model settings.
+      displayWrite=displayWrite.catch(()=>{}).then(async()=>{
+        const settings={...await loadSettings(),backgroundTransparency:message.value};
+        await chrome.storage.local.set({settings});
+        await notifyTabs({type:'DISPLAY_SETTINGS_UPDATED'},sender.tab.id);
+        return {backgroundTransparency:settings.backgroundTransparency};
+      });
+      return displayWrite;
+    }
     case 'GET_TRANSLATION_PREFERENCE': {
       return safePreferences(await loadSettings());
     }

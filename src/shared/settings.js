@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   bilingual: true,
   fontSize: 22,
   bottomOffset: 64,
+  backgroundTransparency: 24,
   asrConcurrency: 2,
   asrMode: 'whole',
   compressedChunkSeconds: 120,
@@ -50,7 +51,7 @@ export function normalizeSettings(input = {}) {
   }
   if (!s.asrModel || !s.translationModel || !s.targetLanguage) throw new Error('模型名称和目标语言不能为空。');
   for (const key of ['translateEnabled', 'preferNativeSubtitles', 'bilingual', 'autoEnabled', 'followNext']) s[key] = Boolean(s[key]);
-  const bounds = {fontSize:[14,48],bottomOffset:[0,300],asrConcurrency:[1,4],chunkSeconds:[8,30],compressedChunkSeconds:[30,600],asrTimeoutSeconds:[60,1800],translationTimeoutSeconds:[30,600],translationBatchSize:[1,100],maxAudioMB:[10,300],maxDurationMinutes:[1,180],collectionLimit:[1,500]};
+  const bounds = {fontSize:[14,48],bottomOffset:[0,300],backgroundTransparency:[0,100],asrConcurrency:[1,4],chunkSeconds:[8,30],compressedChunkSeconds:[30,600],asrTimeoutSeconds:[60,1800],translationTimeoutSeconds:[30,600],translationBatchSize:[1,100],maxAudioMB:[10,300],maxDurationMinutes:[1,180],collectionLimit:[1,500]};
   for (const [key,[min,max]] of Object.entries(bounds)) {
     const value = Number(s[key]);
     if (!Number.isFinite(value) || value < min || value > max) throw new Error(`${key} 必须在 ${min}–${max} 之间。`);
