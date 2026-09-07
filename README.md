@@ -16,6 +16,8 @@ Chrome Manifest V3 插件，为 B 站视频提前生成字幕：**下载完整�
 
 ## 安装与更新
 
+**[下载最新安装包](https://github.com/yesifu/BiliBiliSubtitle/releases/latest/download/bili-whole-subtitles.zip)** · [全部版本](https://github.com/yesifu/BiliBiliSubtitle/releases)
+
 1. Chrome 116 或更新版本，打开 `chrome://extensions`。
 2. 开启「开发者模式」，选择「加载已解压的扩展程序」。
 3. 选择包含 `manifest.json` 的文件夹。源码目录可直接安装；ZIP 需先解压。
@@ -78,6 +80,18 @@ npm run package
 ```
 
 输出 `dist/bili-whole-subtitles.zip`。运行时依赖的 MP4Box.js 已随包提供，许可见 `src/vendor/LICENSE`。
+
+### 自动发布 Release
+
+将 `manifest.json` 和 `package.json` 的版本号同步更新并提交，然后推送对应标签。例如版本号为 `1.3.1` 时：
+
+```powershell
+git push origin main
+git tag v1.3.1
+git push origin v1.3.1
+```
+
+GitHub Actions 自动检查代码、运行测试、生成 `dist/bili-whole-subtitles.zip`，校验标签和安装包版本一致后发布 Release，附带 ZIP 和 SHA-256 校验文件。失败时不会新发布 Release。也可在 Actions 的「Build and release extension」中手动运行，填写已有的版本标签重试。无需配置额外密钥。
 
 `scripts/browser-smoke.mjs` 在隔离浏览器目录中以模拟接口验证：识别、翻译、缓存、自动触发、下一 P、200P 多选、导出、取消、模型刷新及格式回退。通过 `BILI_PLAYWRIGHT_PATH` / `BILI_BROWSER_PATH` 配置测试运行时；`BILI_TEST_AUDIO` 可指向实际 M4A 测试素材。没有使用用户真实 Key 或进行付费请求。
 

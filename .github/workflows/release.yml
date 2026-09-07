@@ -1,0 +1,99 @@
+name: Build and release extension
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag, e.g. v1.3.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Check manifest, scripts and CSP
+        run: npm run check
+      - name: Run tests
+        run: npm test
+      - name: Build installation ZIP
+        run: npm run package
+      - name: Verify release and create checksum
+        shell: pwsh
+        run: ./scripts/verify-release.ps1 -Tag $env:RELEASE_TAG
+      - name: Preserve verified package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: extension-release
+          path: |
+            dist/bili-whole-subtitles.zip
+            dist/bili-whole-subtitles.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Download verified package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: extension-release
+          path: dist
+      - name: Verify checksum
+        working-directory: dist
+        run: sha256sum --check bili-whole-subtitles.zip.sha256
+      - name: Publish GitHub Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-notes.md <<'NOTES'
+          下载下方的 **bili-whole-subtitles.zip** 即可安装，不需要下载 Source code。
+
+          1. 解压 ZIP。
+          2. Chrome 打开 `chrome://extensions`，开启开发者模式。
+          3. 点击「加载已解压的扩展程序」，选择解压后包含 `manifest.json` 的目录。
+          4. 填写 API Key 并保存，刷新 B 站视频页。
+
+          已安装用户可覆盖原目录、重新加载扩展，再刷新视频页。
+
+          安装包由 GitHub Actions 在测试和 ZIP 校验通过后生成。SHA-256 校验值见附件。
+          NOTES
+
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "BiliBiliSubtitle $RELEASE_TAG" --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" \
+            dist/bili-whole-subtitles.zip dist/bili-whole-subtitles.zip.sha256 --clobber
+          gh release edit "$RELEASE_TAG" --draft=false
+          gh release view "$RELEASE_TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"
