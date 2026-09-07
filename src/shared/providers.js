@@ -1,18 +1,23 @@
-import { requestJSON, checkAbort } from './network.js';
+import { requestJSON, checkAbort, delay } from './network.js';
 import { transcriptionCues, parseTranslations } from './subtitles.js';
 import { translationCredentials } from './settings.js';
 import { encodeWav } from './audio.js';
 import { md5 } from './md5.js';
 
-export async function transcribeChunk(samples, sampleRate, chunk, settings, signal) {
+export async function transcribeChunk(samples, sampleRate, chunk, settings, signal, options={}) {
   checkAbort(signal);
-  let energy=0;
-  for(let i=chunk.start;i<chunk.end;i+=16) energy+=samples[i]*samples[i];
-  if (Math.sqrt(energy/Math.ceil((chunk.end-chunk.start)/16))<0.00035) return {cues:[],timing:'precise'};
-  return transcribeBlob(encodeWav(samples.subarray(chunk.start,chunk.end),sampleRate),'audio.wav',chunk.offset,chunk.duration,settings,signal);
+  const timingOptions={textTiming:chunk.timing,...options};
+  // These regions were selected from the source audio. A fixed amplitude gate
+  // here would silently discard quiet voices the splitter intentionally kept.
+  if(timingOptions.textTiming!=='speech') {
+    let energy=0;
+    for(let i=chunk.start;i<chunk.end;i+=16) energy+=samples[i]*samples[i];
+    if (Math.sqrt(energy/Math.ceil((chunk.end-chunk.start)/16))<0.00035) return {cues:[],timing:'precise'};
+  }
+  return transcribeBlob(encodeWav(samples.subarray(chunk.start,chunk.end),sampleRate),'audio.wav',chunk.offset,chunk.duration,settings,signal,undefined,timingOptions);
 }
 
-export async function transcribeBlob(blob,filename,offset,duration,settings,signal,onUpload=()=>{}) {
+export async function transcribeBlob(blob,filename,offset,duration,settings,signal,onUpload=()=>{},options={}) {
   checkAbort(signal);
   const form = new FormData();
   form.append('file',blob,filename);
@@ -22,11 +27,27 @@ export async function transcribeBlob(blob,filename,offset,duration,settings,sign
     form.append('timestamp_granularities[]','segment');
     if (settings.sourceLanguage!=='auto') form.append('language',settings.sourceLanguage);
   }
-  const result = await uploadJSON(`${settings.asrBaseUrl}/audio/transcriptions`,{
-    method:'POST',headers:{Authorization:`Bearer ${settings.asrApiKey}`},body:form,
-  },{signal,timeout:(settings.asrTimeoutSeconds || 600)*1000,label:'语音识别',onUpload});
+  let result;
+  for(let attempt=0;;attempt++) {
+    checkAbort(signal);
+    try {
+      result=await uploadJSON(`${settings.asrBaseUrl}/audio/transcriptions`,{
+        method:'POST',headers:{Authorization:`Bearer ${settings.asrApiKey}`},body:form,
+      },{signal,timeout:(settings.asrTimeoutSeconds || 600)*1000,label:'语音识别',onUpload});
+      break;
+    } catch(error) {
+      // Retry only explicit transient HTTP failures for this short region. A
+      // disconnected/timed-out request may already have been billed upstream.
+      if(options.textTiming!=='speech' || attempt>=2 || ![429,502,503,504].includes(error.status)) throw error;
+      const wait=Math.max(1000*2**attempt,error.retryAfterMs || 0);
+      // Do not retry earlier than a long server cooldown or leave a job waiting
+      // indefinitely; completed regions remain available for a later resume.
+      if(wait>30000) throw error;
+      await delay(wait,signal);
+    }
+  }
   if (typeof result.text!=='string' && !Array.isArray(result.segments)) throw new Error('识别接口没有返回 text 或 segments 字段，请检查模型是否支持语音转文字。');
-  return transcriptionCues(result,offset,duration);
+  return transcriptionCues(result,offset,duration,options);
 }
 
 // Upload progress separates connection/upload delays from provider processing.
@@ -52,7 +73,14 @@ export function uploadJSON(url,options,{signal,timeout,label,onUpload}) {
         const status=xhr.status;
         const hint=status===401?'API Key 无效':status===429?'限流或额度不足':status===413?'文件超过服务上限':status===400||status===415||status===422?'模型不接受此音频格式或参数':'服务返回错误';
         const error=new Error(`${label} · ${new URL(url).hostname}：${hint}（HTTP ${status}）。`);
-        error.status=status;finish(error);return;
+        error.status=status;
+        const retryAfter=xhr.getResponseHeader?.('Retry-After')?.trim();
+        if(retryAfter) {
+          const seconds=Number(retryAfter);
+          const milliseconds=Number.isFinite(seconds)?seconds*1000:Date.parse(retryAfter)-Date.now();
+          if(Number.isFinite(milliseconds)) error.retryAfterMs=Math.max(0,milliseconds);
+        }
+        finish(error);return;
       }
       try {finish(null,JSON.parse(xhr.responseText));} catch {finish(new Error(`${label}没有返回有效 JSON。`));}
     };

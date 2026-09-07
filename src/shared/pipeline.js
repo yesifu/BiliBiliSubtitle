@@ -1,6 +1,7 @@
 import { getAudioSources, getNativeSubtitles } from './bilibili.js';
 import { downloadAudio, decodeAudio, splitAudio } from './audio.js';
 import { splitCompressedAudio } from './compressed-audio.js';
+import { splitSpeechAudio } from './speech-audio.js';
 import { transcribeChunk, transcribeBlob, translateCues, mapConcurrent } from './providers.js';
 import { getTrack, putTrack, getCheckpoint, putCheckpoint } from './cache.js';
 import { normalizeCues } from './subtitles.js';
@@ -59,6 +60,12 @@ async function recognize(item,settings,force,signal,progress) {
     return {...result,timing:result.timing==='approximate'?'whole-approximate':result.timing,sourceLanguage:settings.sourceLanguage,mode:'whole',audioBytes,requestCount:1,recognitionSeconds:(Date.now()-started)/1000};
   }
   let units,pcm;
+  if(mode==='speech') {
+    progress('decoding',0.14,'分析原始音轨中的说话与停顿位置，生成短句字幕');
+    pcm=await decodeAudio(bytes.slice(0),settings.maxDurationMinutes,signal);
+    units=splitSpeechAudio(pcm.samples,pcm.sampleRate);
+    if(!units.length) throw new Error('音轨中未检测到可识别的语音，请确认视频中有人声。');
+  }
   if(mode==='compressed') {
     if(format.type!=='audio/mp4') throw new Error('此音轨需要兼容识别。');
     progress('preparing_audio',0.14,`整理压缩音轨，每段约 ${settings.compressedChunkSeconds} 秒；保留原始音质，无需解码转码`);
@@ -80,7 +87,7 @@ async function recognize(item,settings,force,signal,progress) {
     else {
       requests++;
       try {
-        result=mode==='timed' ? await transcribeChunk(pcm.samples,pcm.sampleRate,unit,settings,signal)
+        result=mode==='timed' || mode==='speech' ? await transcribeChunk(pcm.samples,pcm.sampleRate,unit,settings,signal,mode==='speech'?{textTiming:'speech'}:{})
           : await transcribeBlob(unit.blob,unit.filename,unit.offset,unit.duration,settings,signal);
       } catch(error) {error.phase=error.phase || 'transcribing';error.message=`第 ${i+1} / ${units.length} 段 · ${error.message}`;throw error;}
       await putCheckpoint(item.bvid,item.cid,settings,key,result);
@@ -91,7 +98,8 @@ async function recognize(item,settings,force,signal,progress) {
   },signal);
   pcm=null;
   if(!parts.some(part=>part.cues.length)) throw new Error('未识别出语音或可用字幕。');
-  return {cues:normalizeCues(parts.flatMap(part=>part.cues)),timing:parts.some(part=>part.timing==='approximate')?'approximate':'precise',sourceLanguage:settings.sourceLanguage,mode,audioBytes,requestCount:requests,partCount:units.length};
+  const timing=parts.some(part=>part.timing==='approximate')?'approximate':parts.some(part=>part.timing==='speech')?'speech':'precise';
+  return {cues:normalizeCues(parts.flatMap(part=>part.cues)),timing,sourceLanguage:settings.sourceLanguage,mode,audioBytes,requestCount:requests,partCount:units.length};
   },(previous,next)=>progress('preparing_audio',0.14,`${MODE_LABELS[previous]}未完成，自动切换${MODE_LABELS[next]}`));
 }
 

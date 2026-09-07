@@ -476,8 +476,17 @@
     if (!ui) return;
     let badge = "已开启";
     let status = `已载入 ${state.cues.length} 条${state.track?.settings?.bilingual ? "双语" : "译文"}字幕。`;
-    if (state.track?.timing === "approximate") status += "时间轴根据音频片段估算，可能与语音存在偏差，可调整延迟。";
-    if (state.track?.timing === "whole-approximate") status += "整段识别未返回时间戳，当前时间轴按全文比例粗略估算；需要同步更准确时可改用压缩分段或带时间戳的识别接口。";
+    if (state.track?.timing === "speech") {
+      badge = "语音分段";
+      status += "按原音频短段定位，保留停顿；每段文字整体显示，不是逐字对齐。";
+    }
+    if (state.track?.timing === "approximate" || state.track?.timing === "whole-approximate") {
+      badge = "估算时间轴";
+      status += state.track.timing === "whole-approximate"
+        ? "识别接口未返回逐句时间戳，当前按全文比例估算。"
+        : "识别接口未返回逐句时间戳，当前按音频片段估算。";
+      status += "各段偏差可能不同，固定延迟无法消除；准确同步需要带时间戳的识别结果或音频对齐。";
+    }
     if (!state.cues.length) {
       badge = "待生成";
       status = state.track ? "这份字幕没有可显示的内容，可在扩展面板重新生成。" : "尚无缓存字幕。点击浏览器工具栏中的扩展，生成后会自动显示。";

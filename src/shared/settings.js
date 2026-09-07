@@ -2,7 +2,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   asrProvider: 'siliconflow',
   asrBaseUrl: 'https://api.siliconflow.cn/v1',
   asrApiKey: '',
-  asrModel: 'FunAudioLLM/SenseVoiceSmall',
+  asrModel: 'Qwen/Qwen3-ASR-1.7B',
+  asrModelPreferenceVersion: 1,
   translationBaseUrl: 'https://api.siliconflow.cn/v1',
   translationApiKey: '',
   translationModel: 'Qwen/Qwen2.5-7B-Instruct',
@@ -18,7 +19,8 @@ export const DEFAULT_SETTINGS = Object.freeze({
   bottomOffset: 64,
   backgroundTransparency: 24,
   asrConcurrency: 2,
-  asrMode: 'whole',
+  asrMode: 'speech',
+  asrTimingPreferenceVersion: 1,
   compressedChunkSeconds: 120,
   asrTimeoutSeconds: 600,
   translationTimeoutSeconds: 180,
@@ -58,19 +60,41 @@ export function normalizeSettings(input = {}) {
     s[key] = Math.round(value);
   }
   s.asrProvider = s.asrProvider === 'siliconflow' ? 'siliconflow' : 'openai';
-  s.asrMode = ['whole','compressed','timed'].includes(s.asrMode) ? s.asrMode : 'whole';
+  s.asrMode = ['speech','whole','compressed','timed'].includes(s.asrMode) ? s.asrMode : DEFAULT_SETTINGS.asrMode;
   return s;
 }
 
 export async function loadSettings() {
   const result = await chrome.storage.local.get('settings');
-  if(result.settings && result.settings.translationPreferenceVersion!==1) {
+  if (!result.settings) return normalizeSettings();
+  let input = result.settings;
+  let migrated = false;
+  if(input.translationPreferenceVersion!==1) {
     // 1.2 changes the old auto-enabled default once; later explicit choices persist.
-    const settings=normalizeSettings({...result.settings,translateEnabled:false,translationPreferenceVersion:1});
-    await chrome.storage.local.set({settings});
-    return settings;
+    input = {...input,translateEnabled:false,translationPreferenceVersion:1};
+    migrated = true;
   }
-  return normalizeSettings(result.settings);
+  if(input.asrModelPreferenceVersion!==1) {
+    const settings = normalizeSettings(input);
+    // Upgrade the former built-in default once. Preserve custom gateways/models
+    // and subsequent explicit choices, including choosing SenseVoice again.
+    const oldDefault = settings.asrProvider==='siliconflow' &&
+      settings.asrBaseUrl===DEFAULT_SETTINGS.asrBaseUrl &&
+      (!input.asrModel || settings.asrModel==='FunAudioLLM/SenseVoiceSmall');
+    input = {...input,asrModel:oldDefault ? DEFAULT_SETTINGS.asrModel : settings.asrModel,asrModelPreferenceVersion:1};
+    migrated = true;
+  }
+  if(input.asrTimingPreferenceVersion!==1) {
+    const settings = normalizeSettings(input);
+    const oldDefault = settings.asrProvider==='siliconflow' &&
+      settings.asrBaseUrl===DEFAULT_SETTINGS.asrBaseUrl &&
+      (!input.asrMode || input.asrMode==='whole');
+    input = {...input,asrMode:oldDefault ? 'speech' : settings.asrMode,asrTimingPreferenceVersion:1};
+    migrated = true;
+  }
+  const settings = normalizeSettings(input);
+  if(migrated) await chrome.storage.local.set({settings});
+  return settings;
 }
 
 export async function saveSettings(input) {
@@ -92,6 +116,6 @@ export function trackVariant(settings) {
 
 // Recognition survives translation provider/language changes and timeout changes.
 export function recognitionVariant(s) {
-  const slice=s.asrMode==='timed'?s.chunkSeconds:s.asrMode==='compressed'?s.compressedChunkSeconds:null;
+  const slice=s.asrMode==='speech'?'speech-v1':s.asrMode==='timed'?s.chunkSeconds:s.asrMode==='compressed'?s.compressedChunkSeconds:null;
   return JSON.stringify([2,s.sourceLanguage,s.preferNativeSubtitles,s.asrProvider,s.asrBaseUrl,s.asrModel,s.asrMode,slice]);
 }

@@ -1,7 +1,9 @@
 export const RECOGNITION_MODES = ['whole', 'compressed', 'timed'];
-export const MODE_LABELS = {whole:'整段直传', compressed:'分段识别', timed:'兼容识别'};
+export const MODE_LABELS = {speech:'语音短段',whole:'整段直传', compressed:'分段识别', timed:'兼容识别'};
 
 export function fallbackModes(mode) {
+  // A synchronization request must never silently fall back to full-text estimation.
+  if(mode==='speech') return ['speech'];
   return RECOGNITION_MODES.slice(Math.max(0, RECOGNITION_MODES.indexOf(mode)));
 }
 

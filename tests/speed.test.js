@@ -12,9 +12,9 @@ test('traditional returned CDN URLs rank before peer endpoints without rewriting
   assert.deepEqual(urls.map(s=>new URL(s.url).hostname),['upos.bilivideo.com','other.bilivideo.com','peer.mcdn.bilivideo.cn']);
   assert.equal(new URL(urls[0].url).searchParams.get('sign'),'keep');
 });
-test('old settings migrate to whole mode; recognition survives translation and timeout changes',()=>{
+test('new settings prioritize speech timing; recognition survives translation and timeout changes',()=>{
   const settings=normalizeSettings({asrApiKey:'secret',translateEnabled:true});
-  assert.equal(settings.asrMode,'whole');assert.equal(settings.asrTimeoutSeconds,600);
+  assert.equal(settings.asrMode,'speech');assert.equal(settings.asrTimeoutSeconds,600);
   const changed=normalizeSettings({...settings,targetLanguage:'English',translationModel:'other',asrTimeoutSeconds:900});
   assert.equal(recognitionVariant(settings),recognitionVariant(changed));
   assert.equal(recognitionVariant(settings),recognitionVariant({...settings,chunkSeconds:8,compressedChunkSeconds:60}));

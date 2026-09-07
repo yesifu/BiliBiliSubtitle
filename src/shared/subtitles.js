@@ -38,16 +38,31 @@ export function approximateCues(text, start, end) {
   });
 }
 
-export function transcriptionCues(result, offset, duration) {
+export function transcriptionCues(result, offset, duration, {textTiming}={}) {
+  const hasTimestamp = value => (typeof value==='number' || (typeof value==='string' && value.trim()!=='')) && Number.isFinite(Number(value));
   if (Array.isArray(result.segments) && result.segments.length) {
-    const cues = normalizeCues(result.segments.map(segment => ({
+    const segments=result.segments.filter(segment=>segment && cleanTranscript(segment.text));
+    // Empty/null/boolean values must not become a fabricated zero timestamp.
+    // If any spoken segment lacks usable bounds, retain the complete text via
+    // the fallback instead of silently dropping that segment from the track.
+    const valid=segments.every(segment=>hasTimestamp(segment.start) && hasTimestamp(segment.end) &&
+      Math.min(duration,Number(segment.end))>Math.max(0,Number(segment.start)));
+    const cues = valid ? normalizeCues(segments.map(segment => ({
       start: offset + Math.max(0, Number(segment.start)),
       end: offset + Math.min(duration, Number(segment.end)),
       source:cleanTranscript(segment.text),text:cleanTranscript(segment.text),
-    })));
+    }))) : [];
     if (cues.length) return {cues,timing:'precise'};
   }
-  return {cues:approximateCues(result.text,offset,offset+duration),timing:'approximate'};
+  const transcript=cleanTranscript(result.text) || (Array.isArray(result.segments)
+    ? result.segments.map(segment=>cleanTranscript(segment?.text)).filter(Boolean).join(' ') : '');
+  if (textTiming==='speech') {
+    // This short region already has boundaries measured on the original audio.
+    // Splitting its text by character count would invent a second, drifting clock.
+    const text=transcript;
+    return {cues:normalizeCues([{start:offset,end:offset+duration,source:text,text}]),timing:'speech'};
+  }
+  return {cues:approximateCues(transcript,offset,offset+duration),timing:'approximate'};
 }
 
 export function parseTranslations(content, count) {

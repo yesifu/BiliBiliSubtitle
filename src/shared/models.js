@@ -1,8 +1,9 @@
 import { requestJSON } from './network.js';
 import { validateBaseUrl } from './settings.js';
 
-// Official transcription schema, verified 2026-09-07. Voice-generation models are excluded.
-export const ASR_MODELS = ['FunAudioLLM/SenseVoiceSmall','TeleAI/TeleSpeechASR'];
+// Starter choices; the account's refreshed speech-to-text list is authoritative.
+// Qwen availability was confirmed in the user's account on 2026-09-07.
+export const ASR_MODELS = ['Qwen/Qwen3-ASR-1.7B','FunAudioLLM/SenseVoiceSmall','TeleAI/TeleSpeechASR'];
 export const TRANSLATION_MODELS = [
   'deepseek-ai/DeepSeek-V4-Flash','Pro/deepseek-ai/DeepSeek-V4','Pro/zai-org/GLM-5.2',
   'moonshotai/Kimi-K2.7-Code','Qwen/Qwen2.5-7B-Instruct',

@@ -27,21 +27,25 @@ const fieldNames = {
   maxAudioMB: '音频大小上限', maxDurationMinutes: '音频时长上限', collectionLimit: '合集处理上限',
 };
 const presets = {
-  siliconflow: { asrBaseUrl: 'https://api.siliconflow.cn/v1', asrModel: 'FunAudioLLM/SenseVoiceSmall' },
+  siliconflow: { asrBaseUrl: DEFAULT_SETTINGS.asrBaseUrl, asrModel: DEFAULT_SETTINGS.asrModel },
   openai: { asrBaseUrl: 'https://api.openai.com/v1', asrModel: 'whisper-1' },
 };
 const modes = {
+  speech: {
+    description: '按音频停顿切成最多 6 秒的小段，逐段识别；请求较多，适合播放字幕。',
+    timing: '文字固定在对应音频片段的位置，保留停顿。片内整段显示，不是逐字对齐。',
+  },
   whole: {
     description: '失败自动换分段识别，再失败换兼容识别。',
-    timing: 'SenseVoice 不返回时间戳，整段字幕的时间仅为粗略估算。',
+    timing: '返回逐句时间戳时直接同步；仅返回文字时按全文估算，可能不同步。',
   },
   compressed: {
     description: '分段上传音轨，失败自动换兼容识别。',
-    timing: '服务未返回时间戳时，字幕时间按分段估算。',
+    timing: '返回逐句时间戳时直接同步；仅返回文字时按分段估算，可能不同步。',
   },
   timed: {
     description: '使用短音频逐段识别，耗时较长。',
-    timing: '可细化时间估算；精确对齐仍需服务返回时间戳。',
+    timing: '短片段可减小估算范围；精确对齐仍需服务返回时间戳。',
   },
 };
 
@@ -225,7 +229,7 @@ function validateForm() {
     }
     if (!values[key]) fail(key, `请填写${fieldNames[key]}。`);
   }
-  if (!Object.hasOwn(modes, values.asrMode)) fail('asrMode', '请选择整段直传、压缩大分段或 WAV 小切片。');
+  if (!Object.hasOwn(modes, values.asrMode)) fail('asrMode', '请选择有效的识别档位。');
   for (const key of numberKeys) {
     const input = $(key);
     const value = input.valueAsNumber;
@@ -251,7 +255,7 @@ function validateForm() {
 }
 
 function updateDerivedUI() {
-  const mode = modes[$('asrMode').value] || modes.whole;
+  const mode = modes[$('asrMode').value] || modes.speech;
   for (const [id, value] of Object.entries({
     'asr-mode-description': mode.description,
     'asr-mode-timing': mode.timing,

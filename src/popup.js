@@ -31,10 +31,11 @@ const PHASES = {
 };
 const STATES = { running: "进行中", completed: "已完成", cancelled: "已取消", failed: "失败" };
 const RESULT_STATES = { completed: "已生成", cached: "已缓存", skipped: "原生字幕，已跳过", failed: "失败" };
-const TIMINGS = { native: "原生时间轴", precise: "精确时间轴", approximate: "估算时间轴", "whole-approximate": "整段粗略时间轴" };
+const TIMINGS = { native: "原生时间轴", precise: "精确时间轴", speech: "语音分段时间轴", approximate: "估算时间轴", "whole-approximate": "整段粗略时间轴" };
 const TIMING_NOTES = {
-  approximate: "时间按分段估算，可能不同步，可在播放器中调整延迟。",
-  "whole-approximate": "时间按全片估算，可能不同步。WAV 分段可细化估算。",
+  speech: "按原音频短段定位，保留停顿；每段文字整体显示，不是逐字对齐。",
+  approximate: "接口未返回逐句时间戳，按分段估算；各段偏差不同时，固定延迟无法校正。",
+  "whole-approximate": "接口未返回逐句时间戳，按全文估算；准确同步需要时间戳或音频对齐。",
 };
 
 function text(node, value) {

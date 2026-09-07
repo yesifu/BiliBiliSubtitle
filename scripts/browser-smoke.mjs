@@ -15,7 +15,9 @@ const context=await playwright.chromium.launchPersistentContext(profile,{
   args:[`--disable-extensions-except=${root}`,`--load-extension=${root}`,'--no-first-run','--disable-gpu'],
 });
 try {
-  const worker=context.serviceWorkers()[0] || await context.waitForEvent('serviceworker',{timeout:20000});
+  const worker=context.serviceWorkers()[0] || await context.waitForEvent('serviceworker',{timeout:20000}).catch(error=>{
+    throw new Error('The isolated test browser did not start the unpacked extension. Use an installed extension-capable Chromium build through BILI_BROWSER_PATH; no existing Chrome profile is needed.',{cause:error});
+  });
   const id=new URL(worker.url()).host;
   const errors=[];
   context.on('page',page=>page.on('pageerror',error=>errors.push(error.message)));
@@ -28,13 +30,23 @@ try {
   assert.equal(await options.locator('#translateEnabled').isChecked(),false);
   assert.equal(await options.locator('#translation-settings').isVisible(),false);
   assert.equal(await options.locator('#processing').count(),0);
-  assert.equal(await options.locator('#asr-model-select option').count(),3);
+  assert.equal(await options.locator('#asr-model-select option').count(),4);
+  assert.equal(await options.locator('#asr-model-select').inputValue(),'Qwen/Qwen3-ASR-1.7B');
+  assert.equal(await options.locator('#asr-model-select option').first().getAttribute('value'),'Qwen/Qwen3-ASR-1.7B');
+  assert.equal(await options.locator('#asrModel').inputValue(),'Qwen/Qwen3-ASR-1.7B');
+  assert.match(await options.locator('#asr-mode-timing').textContent(),/对应音频片段/);
+  assert.doesNotMatch(await options.locator('#asr-mode-timing').textContent(),/SenseVoice/);
   assert.equal(await options.locator('#register-siliconflow').getAttribute('href'),'https://cloud.siliconflow.cn/i/cW7ksWMh');
   assert.equal(await options.locator('#subtitles').getAttribute('open'),null);
   await options.setViewportSize({width:390,height:844});
   assert.equal(await options.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true);
   await options.screenshot({path:path.join(artifacts,'options-narrow.png'),fullPage:true});
   await options.setViewportSize({width:1200,height:900});
+  await options.locator('input[name="asrProvider"][value="openai"]').check();
+  assert.equal(await options.locator('#asr-model-select').inputValue(),'whisper-1');
+  await options.locator('input[name="asrProvider"][value="siliconflow"]').check();
+  assert.equal(await options.locator('#asr-model-select').inputValue(),'Qwen/Qwen3-ASR-1.7B');
+  assert.equal(await options.locator('#asrBaseUrl').inputValue(),'https://api.siliconflow.cn/v1');
   await options.locator('#translateEnabled').check();
   await options.locator('#translation-model-select').waitFor({state:'visible'});
   await options.locator('#targetLanguage').fill('English');
@@ -51,7 +63,7 @@ try {
   await options.locator('#translateEnabled').uncheck();
   await options.locator('#subtitles > summary').click();
   await options.locator('#asrApiKey').fill('test-key-only');
-  assert.equal(await options.locator('#asrMode').inputValue(),'whole');
+  assert.equal(await options.locator('#asrMode').inputValue(),'speech');
   await options.locator('#preferNativeSubtitles').uncheck();
   await options.locator('#subtitles > summary').click();
   await options.locator('#fontSize').fill('2');
@@ -70,15 +82,25 @@ try {
   await options.locator('#save-settings').click();
   await options.waitForFunction(()=>document.querySelector('#save-status').dataset.tone==='success');
   assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings.asrApiKey),'test-key-only');
+  assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings.asrModel),'Qwen/Qwen3-ASR-1.7B');
+  assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings.asrModelPreferenceVersion),1);
   assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings.backgroundTransparency),80);
   assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings.translationModel),'Qwen/Qwen2.5-7B-Instruct');
   await options.route('**/v1/models?*',async route=>{
     assert.equal(route.request().headers().authorization,'Bearer test-key-only');
     assert.equal(new URL(route.request().url()).searchParams.get('sub_type'),'speech-to-text');
-    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({data:[{id:'TeleAI/TeleSpeechASR'},{id:'FunAudioLLM/SenseVoiceSmall'}]})});
+    await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({data:[
+      {id:'FunAudioLLM/SenseVoiceSmall'},{id:'Qwen/Qwen3-ASR-1.7B'},
+      {id:'XingChenAGI/XingChenASR-Diarize-V3.0'},{id:'XingChenAGI/XingChenASR-V3.2'},
+      {id:'XingChenAGI/XingChenASR-V3.2-Ultra'},{id:'XingChenAGI/XingChenGSR-V1.0'},
+    ]})});
   });
   await options.locator('#refresh-asr-models').click();
-  await options.waitForFunction(()=>document.querySelector('#asr-models-status').textContent.includes('2 个'));
+  await options.waitForFunction(()=>document.querySelector('#asr-models-status').textContent.includes('6 个'));
+  assert.equal(await options.locator('#asr-model-select option').count(),7);
+  assert.equal(await options.locator('#asr-model-select').inputValue(),'Qwen/Qwen3-ASR-1.7B');
+  assert.equal(await options.locator('#asrModel').inputValue(),'Qwen/Qwen3-ASR-1.7B');
+  await options.screenshot({path:path.join(artifacts,'options-qwen-models.png'),fullPage:true});
   await options.unroute('**/v1/models?*');
   console.log('Compact settings, responsive layout, translation disclosure and validation of collapsed fields verified.');
   await worker.evaluate(()=>chrome.storage.local.remove('settings'));
@@ -110,9 +132,16 @@ try {
   const samples=new Float32Array(16000*18);
   for(let i=0;i<samples.length;i++) samples[i]=Math.sin(i*2*Math.PI*440/16000)*0.2;
   const wav=Buffer.from(await encodeWav(samples).arrayBuffer());
+  const speechSamples=new Float32Array(16000*18);
+  for(const [start,end] of [[4,5.4],[15,16.3]]) {
+    for(let i=Math.round(start*16000);i<Math.round(end*16000);i++) speechSamples[i]=Math.sin(i*2*Math.PI*440/16000)*0.2;
+  }
+  const speechWav=Buffer.from(await encodeWav(speechSamples).arrayBuffer());
   let fixtureAudio=wav;
   let asrCalls=0,translationCalls=0,cancelMode=false,asrInFlight=0,translationFailure=false,translationDelay=0;
   let nativeAvailable=true,rejectAsrCount=0,allowSecondAudio=false;
+  let speechFixture=false;
+  const speechTexts=['First speech. Entire segment.','Later speech. Kept at fifteen.'];
   const apiHeaders={ 'Content-Type':'application/json','Access-Control-Allow-Origin':'*' };
   const fulfill=(route,body)=>route.fulfill({status:200,headers:apiHeaders,body:JSON.stringify(body)});
   const fixtureView={code:0,data:{bvid,title:'测试课程 · 理解声音',pic:'',pages:[{page:1,cid:11,part:'第一课',duration:18},{page:2,cid:12,part:'无音轨',duration:18}],ugc_season:{title:'测试合集',ep_count:2,sections:[{episodes:[{bvid,cid:11,title:'第一课'},{bvid:'BV2xx411c7mD',cid:22,title:'第二课'}]}]}}};
@@ -126,7 +155,7 @@ try {
       if(url.pathname.endsWith('/v2')) return fulfill(route,{code:0,data:{subtitle:{subtitles:nativeAvailable?[{lan:'en',lan_doc:'English',subtitle_url:'https://test.hdslb.com/native.json'}]:[]}}});
       return route.fulfill({status:404,body:'Unmocked API'});
     }
-    if(url.hostname==='test.bilivideo.com') return route.fulfill({status:200,contentType:fixtureAudio===wav?'audio/wav':'audio/mp4',body:fixtureAudio});
+    if(url.hostname==='test.bilivideo.com') return route.fulfill({status:200,contentType:fixtureAudio===wav||fixtureAudio===speechWav?'audio/wav':'audio/mp4',body:fixtureAudio});
     if(url.hostname==='test.hdslb.com') return fulfill(route,{body:[{from:1,to:4,content:'Native caption.'}]});
     if(url.hostname==='api.siliconflow.cn') {
       assert.equal(route.request().headers().authorization,'Bearer test-key-only');
@@ -135,6 +164,7 @@ try {
         try {
           if(rejectAsrCount>0) {rejectAsrCount--;return route.fulfill({status:415,headers:apiHeaders,body:'{}'});}
           if(cancelMode) await new Promise(resolve=>setTimeout(resolve,1500));
+          if(speechFixture) return await fulfill(route,{text:speechTexts[asrCalls-1]});
           return await fulfill(route,{text:'Hello world. This is the complete lesson.'});
         } finally {asrInFlight--;}
       }
@@ -208,6 +238,94 @@ try {
     throw new Error('Task did not reach expected state: '+JSON.stringify(status));
   };
   const waitJob=()=>waitState(status=>status.state!=='running');
+  // Exercise the actual offscreen AudioContext and multipart uploads. Only the
+  // remote ASR response is mocked; decode, segmentation, IndexedDB and the
+  // content-script player's seek events run in their real extension contexts.
+  await cdp('Runtime.evaluate',{expression:`(() => {
+    globalThis.speechSmoke = {decodes: [], uploads: []};
+    const decode = AudioContext.prototype.decodeAudioData;
+    AudioContext.prototype.decodeAudioData = function (...args) {
+      return decode.apply(this, args).then(audio => {
+        speechSmoke.decodes.push({sampleRate: audio.sampleRate, length: audio.length, duration: audio.duration});
+        return audio;
+      });
+    };
+    const send = XMLHttpRequest.prototype.send;
+    XMLHttpRequest.prototype.send = function (body) {
+      const file = body instanceof FormData ? body.get('file') : null;
+      if (file instanceof Blob) speechSmoke.uploads.push(file.arrayBuffer().then(bytes => {
+        const view = new DataView(bytes);
+        return {size: bytes.byteLength, format: view.getUint16(20, true), sampleRate: view.getUint32(24, true), dataBytes: view.getUint32(40, true)};
+      }));
+      return send.call(this, body);
+    };
+    speechSmoke.restore = () => {
+      AudioContext.prototype.decodeAudioData = decode;
+      XMLHttpRequest.prototype.send = send;
+    };
+  })()`});
+  fixtureAudio=speechWav;speechFixture=true;
+  await options.evaluate(async()=>{
+    const {saveSettings}=await import('./src/shared/settings.js');
+    await saveSettings({asrApiKey:'test-key-only',translateEnabled:false,asrMode:'speech',asrConcurrency:1,preferNativeSubtitles:false});
+  });
+  await run();
+  const speechJob=await waitJob();
+  assert.equal(speechJob.state,'completed',JSON.stringify(speechJob));
+  const speechTrack=(await popup.evaluate(bvid=>chrome.runtime.sendMessage({type:'GET_TRACK',bvid,cid:11}),bvid)).data;
+  assert.equal(speechTrack.timing,'speech');assert.equal(speechTrack.mode,'speech');
+  assert.equal(speechTrack.cues.length,2,'punctuation must not invent timings inside a text-only speech segment');
+  assert.equal(speechTrack.requestCount,2);assert.equal(speechTrack.partCount,2);
+  assert.equal(asrCalls,2);assert.equal(translationCalls,0);
+  assert.deepEqual(speechTrack.cues.map(cue=>cue.text),speechTexts);
+  assert.ok(speechTrack.cues[0].start>=3.8 && speechTrack.cues[0].start<=4);
+  assert.ok(speechTrack.cues[0].end>=5.4 && speechTrack.cues[0].end<=5.6);
+  assert.ok(speechTrack.cues[1].start>=14.8 && speechTrack.cues[1].start<=15,'long pauses must retain the original absolute offset');
+  assert.ok(speechTrack.cues[1].end>=16.3 && speechTrack.cues[1].end<=16.5);
+  const observed=(await cdp('Runtime.evaluate',{expression:'(async () => ({decodes: speechSmoke.decodes, uploads: await Promise.all(speechSmoke.uploads)}))()',awaitPromise:true,returnByValue:true})).result.value;
+  await cdp('Runtime.evaluate',{expression:'speechSmoke.restore()'});
+  assert.deepEqual(observed.decodes,[{sampleRate:16000,length:18*16000,duration:18}]);
+  assert.equal(observed.uploads.length,2);
+  for(const [i,upload] of observed.uploads.entries()) {
+    assert.equal(upload.format,1);assert.equal(upload.sampleRate,16000);
+    assert.equal(upload.size,44+upload.dataBytes);
+    const seconds=upload.dataBytes/(2*upload.sampleRate);
+    assert.ok(seconds>0 && seconds<=6);
+    assert.ok(Math.abs(seconds-(speechTrack.cues[i].end-speechTrack.cues[i].start))<1/16000);
+  }
+  const loadSpeechMedia=()=>videoPage.evaluate(async data=>{
+    const video=document.querySelector('video');
+    video.src=URL.createObjectURL(new Blob([Uint8Array.from(atob(data),c=>c.charCodeAt(0))],{type:'audio/wav'}));
+    await new Promise(resolve=>video.addEventListener('loadedmetadata',resolve,{once:true}));
+    video.pause();
+  },speechWav.toString('base64'));
+  const speechSeek=async(seconds,expected)=>{
+    await videoPage.evaluate(seconds=>new Promise(resolve=>{
+      const video=document.querySelector('video');
+      video.addEventListener('seeked',resolve,{once:true});video.currentTime=seconds;
+    }),seconds);
+    assert.equal(await videoPage.locator('.translation').textContent(),expected);
+    assert.equal(await videoPage.locator('.captions').isVisible(),Boolean(expected));
+  };
+  await videoPage.waitForFunction(()=>document.querySelector('#bst-ai-subtitle-host')?.shadowRoot.querySelector('.toggle-status')?.textContent==='语音分段');
+  await loadSpeechMedia();
+  await speechSeek(15.4,speechTexts[1]);await speechSeek(4.3,speechTexts[0]);await speechSeek(8,'');
+  await videoPage.evaluate(()=>document.querySelector('video').playbackRate=2);
+  await speechSeek(15.8,speechTexts[1]);await speechSeek(2,'');await speechSeek(16.7,'');
+  await run();
+  assert.equal((await waitJob()).results[0].status,'cached');assert.equal(asrCalls,2);
+  await videoPage.reload();
+  await videoPage.waitForFunction(()=>document.querySelector('#bst-ai-subtitle-host')?.shadowRoot.querySelector('.toggle-status')?.textContent==='语音分段');
+  await loadSpeechMedia();await speechSeek(15.4,speechTexts[1]);
+  assert.equal(asrCalls,2,'reloading a speech track must reuse the cached captions');
+  await videoPage.screenshot({path:path.join(artifacts,'player-speech-seek.png')});
+  console.log('Speech mode: real AudioContext decode, two bounded WAV uploads, absolute offsets across long silence, whole-segment text, cache, paused/2x seek, gap clearing and speech badge verified.');
+  await options.evaluate(()=>chrome.runtime.sendMessage({type:'CLEAR_CACHE'}));
+  fixtureAudio=wav;speechFixture=false;asrCalls=0;translationCalls=0;
+  await options.evaluate(async()=>{
+    const {saveSettings}=await import('./src/shared/settings.js');
+    await saveSettings({asrApiKey:'test-key-only',translateEnabled:true,asrMode:'timed',preferNativeSubtitles:false,chunkSeconds:8,translationBatchSize:2});
+  });
   await run('pages');
   const job=await waitJob();
   assert.equal(job.state,'completed',JSON.stringify(job));assert.equal(job.results[0].status,'completed');assert.equal(job.results[1].status,'failed');
@@ -224,6 +342,7 @@ try {
   },wav.toString('base64'));
   await videoPage.locator('#bst-ai-subtitle-host .translation').waitFor({state:'visible'});
   assert.match(await videoPage.locator('#bst-ai-subtitle-host .translation').textContent(),/中文字幕/);
+  assert.equal(await videoPage.locator('.toggle-status').textContent(),'估算时间轴');
   await videoPage.screenshot({path:path.join(artifacts,'player-subtitles.png')});
   // Display changes must persist independently of subtitle availability and recognition cache.
   const displaySettings=(await popup.evaluate(()=>chrome.runtime.sendMessage({type:'GET_DISPLAY_SETTINGS'}))).data;
@@ -283,7 +402,10 @@ try {
     await videoPage.getByRole('button',{name:'重新读取',exact:true}).click();
     await videoPage.waitForFunction(()=>!document.querySelector('#bst-ai-subtitle-host').shadowRoot.querySelector('.status').textContent.includes('读取当前'));
   };
+  await replaceTrack({...timelineFixture,timing:'whole-approximate'});
+  assert.equal(await videoPage.locator('.toggle-status').textContent(),'估算时间轴');
   await replaceTrack(timelineFixture);
+  assert.equal(await videoPage.locator('.toggle-status').textContent(),'已开启');
   const seek=async(seconds,expected)=>{
     await videoPage.evaluate(seconds=>new Promise(resolve=>{
       const video=document.querySelector('video');

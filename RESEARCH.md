@@ -2,6 +2,24 @@
 
 2026-09-07。目标：减少视频转字幕的请求次数与重试浪费，并核实“浏览器缓存 / 最低分辨率 / 独立音轨 / 本地文件整段上传”的可行性。
 
+## 1.4.0 真实 P123 时间轴与短段方案
+
+用户当前打开的是 `BV13Q4y1C7hS` 的 P123「devops-可视化Pipeline-第五步-就绪探针问题」，CID `415363414`。实际页面显示 175 条 AI 字幕，且明确提示「识别接口未返回逐句时间戳，当前按全文比例估算」。这确认当前字幕仍走全文估算路径；尚未读取这次请求的原始接口响应，不能据此断言托管 Qwen 的全部能力。
+
+1.4.0 保留 Qwen，用原音频的短窗口限制文本的显示范围：16 kHz 单声道解码，停顿优先、最长 6 秒，每段的 offset 直接来自原样本索引。只有完全静音可被省略，低音量样本保留；省略静音不会改变后续片段的绝对时间。纯文字响应成为对应窗口内的一条字幕，不再二次按字数均分。标准且完整的有效 segments 仍优先使用。界面区分「语音分段」和接口精确时间戳。
+
+真实 P123 最低码率 AAC 音轨大小 9,110,162 字节，解码为 17,369,641 个 16 kHz 样本，时长 1085.6025625 秒；页面取整显示 18:06。切分得到 330 段，中位时长 3.09 秒、P95 5.73 秒、最长 5.95 秒。逐样本检查确认无重叠或越界、所有非零采样保留、末段到达最终样本。省略的 224 个静音区间合计 108.21 秒，样本均为 0；最长 427.95–433.62 秒，后续片段仍从原音轨 433.62 秒开始。
+
+这次只验证了真实音轨切分和模拟识别结果的时间链路，未调用真实云端 ASR，未验证字幕听感。该方法增加请求次数，且连续讲话可能在段内提前显示或被切词；不是 ForcedAligner，也不能承诺逐字同步。语音短段模式发生错误时保留检查点，不自动回退到全文估算。下文整段默认路径描述是旧版本的历史记录。
+
+## 1.3.3 模型列表与时间戳核实修正
+
+用户刷新后的硅基流动账户列表显示 `Qwen/Qwen3-ASR-1.7B` 及 XingChen 系列；[硅基官方价格页](https://siliconflow.cn/pricing)也列出 Qwen3-ASR-1.7B。下文旧转写文档的两个模型枚举不是当前完整模型列表。1.3.3 改用用户要求的 Qwen 默认模型。
+
+[Qwen 官方代码](https://github.com/QwenLM/Qwen3-ASR/blob/main/qwen_asr/inference/qwen3_asr.py)的 `return_time_stamps=True` 要求配置 `Qwen/Qwen3-ForcedAligner-0.6B`：使用真实音频与文字做对齐，输出文字的起止时间。[官方用法](https://github.com/QwenLM/Qwen3-ASR#forcedaligner-usage)描述了本地 Python 调用。未找到硅基公开的托管对齐接口或 Qwen 时间戳参数，不能保证仅换 ASR 模型就修复时间偏差，也不能由旧文档断言新接口一定不支持。
+
+本次未使用截图中的密钥，未调用真实转写服务。标准 `segments` 路径和 Qwen 模型请求使用模拟响应验证；只有有效时间戳才标记精确，纯文字仍标记估算。
+
 ## 实测结论
 
 1.3 更新（2026-09-07）：已核实[转写接口](https://docs.siliconflow.cn/docs/api/audio-transcriptions-post)的模型枚举为 `FunAudioLLM/SenseVoiceSmall`、`TeleAI/TeleSpeechASR`。[模型列表接口](https://docs.siliconflow.cn/docs/api/models-get)支持 `sub_type=speech-to-text` 和 `sub_type=chat`，插件分别查询，避免把语音合成模型用于转写。[对话接口](https://docs.siliconflow.cn/docs/api/chat-completions-post)明确引用了 DeepSeek-V4-Flash、Pro/deepseek-ai/DeepSeek-V4、Pro/zai-org/GLM-5.2、moonshotai/Kimi-K2.7-Code。预置列表保留原有 Qwen 模型，实际可用范围通过用户账户刷新确认。没有拿用户 Key 请求模型列表或进行付费识别。
