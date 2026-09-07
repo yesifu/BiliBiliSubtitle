@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <meta name="theme-color" content="#f6f7f9" />
+  <title>设置 · Bili 全片字幕</title>
+  <link rel="stylesheet" href="styles/options.css" />
+  <script type="module" src="src/options.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">跳到设置内容</a>
+  <div class="page-shell">
+    <header class="masthead"><h1>Bili 全片字幕 <span>设置</span></h1></header>
+    <main id="main-content">
+      <form id="settings-form" novalidate aria-busy="true">
+        <div class="load-notice" id="load-notice" hidden><p id="load-error" role="alert"></p><button class="button button-secondary" id="retry-load" type="button">重新读取设置</button></div>
+        <fieldset class="form-fields" id="settings-fields" disabled>
+          <legend class="visually-hidden">字幕设置</legend>
+          <section class="panel" id="services" aria-labelledby="services-title">
+            <h2 id="services-title">语音识别</h2>
+            <fieldset class="provider-fieldset"><legend>服务</legend><div class="provider-options"><label><input type="radio" name="asrProvider" value="siliconflow" checked />硅基流动</label><label><input type="radio" name="asrProvider" value="openai" />OpenAI / 自定义</label></div></fieldset>
+            <div class="field"><label for="asrApiKey">API 密钥</label><div class="field-control"><div class="password-input"><input class="mono-input" id="asrApiKey" name="asrApiKey" type="password" placeholder="填入 API Key" autocomplete="off" spellcheck="false" aria-describedby="asrApiKey-error" /><button class="reveal-button" type="button" data-reveal="asrApiKey" aria-label="显示语音识别 API 密钥" aria-controls="asrApiKey" aria-pressed="false">显示</button></div><p class="field-hint"><a id="register-siliconflow" href="https://cloud.siliconflow.cn/i/cW7ksWMh" target="_blank" rel="noopener noreferrer" title="使用作者邀请链接注册硅基流动">注册硅基流动 / 获取密钥</a></p><p class="field-error" id="asrApiKey-error" hidden></p></div></div>
+            <div class="field"><label for="asrBaseUrl">API 地址</label><div class="field-control"><input id="asrBaseUrl" name="asrBaseUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://api.siliconflow.cn/v1" class="mono-input" required aria-describedby="asrBaseUrl-hint asrBaseUrl-error" /><p class="field-hint" id="asrBaseUrl-hint">填写基础地址，通常以 /v1 结尾。</p><p class="field-error" id="asrBaseUrl-error" hidden></p></div></div>
+            <div class="field"><label for="asrModel">识别模型</label><div class="field-control"><div class="model-row"><select id="asr-model-select" aria-label="识别模型"></select><button class="button button-secondary" id="refresh-asr-models" type="button">刷新模型</button></div><input id="asrModel" name="asrModel" type="text" class="mono-input custom-model" placeholder="输入模型 ID" autocomplete="off" spellcheck="false" hidden /><p id="asr-models-status" class="field-hint" role="status"></p><p class="field-error" id="asrModel-error" hidden></p></div></div>
+            <div class="field"><label for="sourceLanguage">音频语言</label><div class="field-control"><select id="sourceLanguage" name="sourceLanguage" aria-describedby="sourceLanguage-error"><option value="auto">自动识别</option><option value="zh">中文</option><option value="en">英语</option><option value="ja">日语</option><option value="ko">韩语</option><option value="yue">粤语</option><option value="fr">法语</option><option value="de">德语</option><option value="es">西班牙语</option><option value="ru">俄语</option></select><p class="field-error" id="sourceLanguage-error" hidden></p></div></div>
+            <div class="field"><label for="asrMode">识别档位</label><div class="field-control"><select id="asrMode" name="asrMode" aria-describedby="asrMode-detail asrMode-error"><option value="whole" selected>原音轨整段直传（推荐速度）</option><option value="compressed">分段识别（更稳）</option><option value="timed">兼容识别（较慢）</option></select><div class="mode-note" id="asrMode-detail" role="status" aria-live="polite" aria-atomic="true"><p id="asr-mode-description"></p><p id="asr-mode-timing"></p></div><p class="field-error" id="asrMode-error" hidden></p></div></div>
+            <label class="checkbox-row" for="preferNativeSubtitles"><input id="preferNativeSubtitles" name="preferNativeSubtitles" type="checkbox" checked /><span>优先使用视频已有字幕</span></label>
+          </section>
+
+          <section class="panel" id="translation-panel" aria-labelledby="translation-title">
+            <div class="panel-heading"><h2 id="translation-title"><label for="translateEnabled">翻译字幕</label></h2><div class="toggle-control"><span id="translation-state">已关闭</span><input class="switch" id="translateEnabled" name="translateEnabled" type="checkbox" role="switch" aria-controls="translation-settings" aria-describedby="translateEnabled-hint" /></div></div>
+            <p class="field-hint" id="translateEnabled-hint">关闭时只生成原文字幕。</p>
+            <div id="translation-settings" hidden>
+              <div class="field"><label for="targetLanguage">目标语言</label><div class="field-control"><input id="targetLanguage" name="targetLanguage" type="text" autocomplete="off" spellcheck="false" placeholder="简体中文" list="target-languages" required aria-describedby="targetLanguage-error" /><p class="field-error" id="targetLanguage-error" hidden></p></div></div>
+              <datalist id="target-languages"><option value="简体中文"></option><option value="繁體中文"></option><option value="English"></option><option value="日本語"></option><option value="한국어"></option><option value="Français"></option><option value="Deutsch"></option><option value="Español"></option></datalist>
+              <div class="field"><label for="translationBaseUrl">API 地址</label><div class="field-control"><input class="mono-input" id="translationBaseUrl" name="translationBaseUrl" type="url" placeholder="https://api.siliconflow.cn/v1" autocomplete="off" spellcheck="false" aria-describedby="translationBaseUrl-error" required /><button class="text-button" id="use-asr-url" type="button">使用识别服务地址</button><p class="field-error" id="translationBaseUrl-error" hidden></p></div></div>
+              <div class="field"><label for="translationApiKey">API 密钥</label><div class="field-control"><div class="password-input"><input class="mono-input" id="translationApiKey" name="translationApiKey" type="password" placeholder="同一服务可留空，复用识别密钥" autocomplete="off" spellcheck="false" aria-describedby="translationApiKey-error key-reuse-status" /><button class="reveal-button" type="button" data-reveal="translationApiKey" aria-label="显示字幕翻译 API 密钥" aria-controls="translationApiKey" aria-pressed="false">显示</button></div><p class="connection-note" id="key-reuse-status"></p><p class="field-error" id="translationApiKey-error" hidden></p></div></div>
+              <div class="field"><label for="translationModel">翻译模型</label><div class="field-control"><div class="model-row"><select id="translation-model-select" aria-label="翻译模型"></select><button class="button button-secondary" id="refresh-translation-models" type="button">刷新模型</button></div><input id="translationModel" name="translationModel" type="text" class="mono-input custom-model" placeholder="输入模型 ID" autocomplete="off" spellcheck="false" hidden /><p id="translation-models-status" class="field-hint" role="status"></p><p class="field-error" id="translationModel-error" hidden></p></div></div>
+              <label class="checkbox-row" for="bilingual"><input id="bilingual" name="bilingual" type="checkbox" checked /><span>同时显示原文和译文</span></label>
+            </div>
+          </section>
+
+          <section class="panel" id="automation-panel" aria-labelledby="automation-title">
+            <h2 id="automation-title">自动识别</h2>
+            <label class="automation-row"><span>全自动识别<small>进入视频就生成字幕，已有原生字幕则跳过。</small></span><input class="switch" type="checkbox" role="switch" id="autoEnabled" name="autoEnabled" /></label>
+            <label class="automation-row"><span>跟随识别下一 P<small>播放当前视频时，后台准备下一 P 字幕。</small></span><input class="switch" type="checkbox" role="switch" id="followNext" name="followNext" /></label>
+            <p class="field-hint">是否翻译由“翻译字幕”开关决定，调用按服务商规则计费。</p>
+          </section>
+
+          <details class="panel disclosure" id="subtitles">
+            <summary>字幕样式</summary>
+            <div class="disclosure-body">
+              <div class="field-grid"><div class="field"><label for="fontSize">字号（px）</label><div class="field-control"><input id="fontSize" name="fontSize" type="number" inputmode="numeric"  min="14" max="48" step="1" required aria-describedby="fontSize-error" /><p class="field-error" id="fontSize-error" hidden></p></div></div><div class="field"><label for="bottomOffset">距底部（px）</label><div class="field-control"><input id="bottomOffset" name="bottomOffset" type="number" inputmode="numeric"  min="0" max="300" step="1" required aria-describedby="bottomOffset-error" /><p class="field-error" id="bottomOffset-error" hidden></p></div></div></div>
+              <div class="subtitle-preview" id="subtitle-preview" role="img" aria-label="字幕样式预览"><span class="preview-label">预览</span><div class="preview-subtitles"><span class="preview-translation" id="preview-translation">这是一条示例字幕。</span><span class="preview-original" id="preview-original">This is a sample subtitle.</span></div></div>
+            </div>
+          </details>
+
+
+          <section class="panel" id="storage" aria-labelledby="storage-title">
+            <div class="cache-row"><div><h2 id="storage-title">缓存</h2><p class="cache-summary"><strong id="cache-count">—</strong> 份字幕 · <span id="cache-bytes">—</span><span id="cache-checkpoints-row" hidden> · <strong id="cache-checkpoints">—</strong> 份识别结果</span></p></div><div class="cache-actions"><button class="button button-quiet" id="refresh-cache" type="button">刷新</button><button class="button button-secondary" id="clear-cache" type="button">清空</button></div></div>
+            <div class="cache-confirm" id="cache-confirm" role="group" aria-labelledby="cache-confirm-title" hidden><p id="cache-confirm-title">清空字幕和识别结果？下次使用需要重新生成。</p><div class="cache-actions"><button class="button button-secondary" id="cancel-clear-cache" type="button">取消</button><button class="button button-danger" id="confirm-clear-cache" type="button">确认清空</button></div></div>
+            <p class="cache-status" id="cache-status" role="status" aria-live="polite" aria-atomic="true"></p>
+          </section>
+          <p class="storage-note">密钥和字幕缓存在本机。识别时上传音频；开启翻译后发送字幕文字。</p>
+          <footer class="save-bar">
+            <div class="save-state"><span class="save-indicator" id="save-indicator" aria-hidden="true"></span><p id="save-status" role="status" aria-live="polite" aria-atomic="true">正在读取设置…</p></div>
+            <div class="save-actions"><button class="button button-quiet" id="discard-changes" type="button" disabled>撤销更改</button><button class="button button-primary" id="save-settings" type="submit">保存设置</button></div>
+          </footer>
+        </fieldset>
+        <noscript><p class="load-notice">请启用 JavaScript，并从扩展设置入口打开此页。</p></noscript>
+      </form>
+    </main>
+  </div>
+</body>
+</html>

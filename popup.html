@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Bili 全片字幕</title>
+    <link rel="stylesheet" href="styles/popup.css">
+    <script type="module" src="src/popup.js"></script>
+  </head>
+  <body>
+    <header class="masthead">
+      <div class="brand">
+        <h1>Bili 全片字幕</h1>
+      </div>
+      <button id="options-button" class="icon-button" type="button" aria-label="打开扩展设置" title="API 密钥与字幕设置">
+        设置
+      </button>
+    </header>
+
+    <main>
+      <section id="context-loading" class="loading-card" aria-label="正在识别视频" aria-busy="true">
+        <div class="skeleton skeleton-cover"></div>
+        <div class="skeleton-copy"><div class="skeleton skeleton-line"></div><div class="skeleton skeleton-line short"></div><p>正在识别当前视频…</p></div>
+      </section>
+
+      <section id="context-empty" class="empty-card" hidden aria-labelledby="empty-title">
+        <h2 id="empty-title">打开哔哩哔哩视频</h2>
+        <p id="empty-description">进入 B 站视频页后，再打开插件。</p>
+        <button id="context-retry" class="text-button" type="button">刷新</button>
+      </section>
+
+      <section id="video-card" class="video-card" hidden aria-label="当前视频">
+        <div class="cover-frame">
+          <span class="cover-placeholder" aria-hidden="true">视频</span>
+          <img id="video-cover" alt="" referrerpolicy="no-referrer" hidden>
+          <span id="video-duration" class="duration" hidden></span>
+        </div>
+        <div class="video-copy">
+          <span class="eyebrow">当前视频</span>
+          <h2 id="video-title"></h2>
+          <p id="video-meta" class="video-meta"></p>
+        </div>
+      </section>
+
+      <form id="generate-form" hidden>
+        <div class="section-heading"><label for="scope-select">生成范围</label><span id="collection-count" class="muted"></span></div>
+        <div class="scope-field">
+          <select id="scope-select" aria-describedby="scope-help">
+            <option value="current">当前视频</option>
+            <option value="pages" disabled>全部分 P</option>
+            <option value="season" disabled>整个合集</option>
+            <option value="selected">自由选择…</option>
+          </select>
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="m4 6 4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div id="selection-panel" hidden>
+          <input id="selection-search" type="search" placeholder="搜索标题或 P 序号" aria-label="搜索视频" />
+          <div class="selection-actions"><span id="selection-count"></span><button id="select-all" class="text-button" type="button">全选结果</button><button id="select-none" class="text-button" type="button">清空</button></div>
+          <div id="selection-list" role="group" aria-label="选择要识别的视频"></div>
+        </div>
+        <p id="scope-help" class="field-help">生成后自动显示字幕。</p>
+        <label class="translation-row" for="translation-toggle"><strong>翻译字幕</strong><span class="translation-control"><small id="translation-help">仅原文</small><input id="translation-toggle" type="checkbox" role="switch" aria-describedby="translation-help" disabled></span></label>
+        <label class="checkbox-row" for="force-checkbox"><input id="force-checkbox" type="checkbox"><span>忽略缓存，重新生成</span></label>
+        <button id="start-button" class="primary-button" type="submit"><span id="start-label">生成原文字幕</span></button>
+      </form>
+
+      <section class="automation-controls" aria-label="自动识别">
+        <label class="translation-row"><strong>全自动识别</strong><span class="translation-control"><small>进入视频自动生成</small><input id="auto-toggle" type="checkbox" role="switch" disabled /></span></label>
+        <label class="translation-row"><strong>跟随识别下一 P</strong><span class="translation-control"><small>播放时预识别下一 P</small><input id="follow-toggle" type="checkbox" role="switch" disabled /></span></label>
+        <p class="field-help">自动任务跳过原生字幕；翻译由上方开关控制。</p>
+        <p id="auto-status" class="field-help" role="status" hidden></p>
+      </section>
+
+      <div id="action-message" class="notice" role="status" aria-live="polite" hidden></div>
+      <div id="action-error" class="notice error-notice" role="alert" hidden></div>
+
+      <section id="job-card" class="job-card" hidden aria-labelledby="job-title">
+        <div class="section-heading"><h2 id="job-title">生成进度</h2><span id="job-state" class="badge"></span></div>
+        <div class="progress-heading"><span id="job-phase"></span><span id="job-percent" class="tabular"></span></div>
+        <progress id="job-progress" max="1" value="0" aria-label="字幕生成进度"></progress>
+        <div class="job-current"><span id="job-count" class="tabular"></span><span id="job-current-title"></span></div>
+        <p id="job-detail" class="field-help" role="status" aria-live="polite"></p>
+        <p id="job-error" class="inline-error" hidden></p>
+        <div class="job-footer"><span id="job-stats" class="muted"></span><button id="cancel-button" class="text-button danger-text" type="button">取消任务</button></div>
+        <details id="results-details" hidden>
+          <summary id="results-summary">查看处理结果</summary>
+          <ul id="results-list" class="results-list"></ul>
+        </details>
+      </section>
+      <div id="status-error" class="notice error-notice" role="status" hidden></div>
+
+      <section id="track-card" class="track-card" hidden aria-labelledby="track-title">
+        <div class="section-heading"><h2 id="track-title">当前字幕</h2><span id="track-badge" class="badge neutral">读取中</span></div>
+        <p id="track-description" class="field-help" role="status" aria-live="polite">正在读取字幕缓存…</p>
+        <div id="track-info" class="track-info" hidden><span id="track-language"></span><span id="track-timing"></span></div>
+        <p id="track-timing-note" class="timing-note" hidden></p>
+        <p id="track-preview" class="track-preview" hidden></p>
+        <div id="export-actions" class="export-actions" hidden>
+          <span class="muted">导出字幕</span>
+          <button id="export-srt" class="secondary-button" type="button" aria-label="导出 SRT 字幕">SRT <span aria-hidden="true">↓</span></button>
+          <button id="export-vtt" class="secondary-button" type="button" aria-label="导出 WebVTT 字幕">VTT <span aria-hidden="true">↓</span></button>
+        </div>
+        <button id="track-retry" class="text-button" type="button" hidden>重新读取字幕</button>
+      </section>
+
+      <aside class="usage-note" aria-label="使用提示">
+        <p>生成时可关闭面板，请保持浏览器运行。</p><button id="inline-options-button" class="inline-link" type="button">API 设置</button>
+      </aside>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,26 @@
+/* The subtitle UI lives in a shadow root. Only its player anchor is styled here. */
+[data-bst-ai-positioned="true"] {
+  position: relative !important;
+}
+
+#bst-ai-subtitle-host {
+  all: initial !important;
+  position: absolute !important;
+  inset: 0 !important;
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  overflow: visible !important;
+  pointer-events: none !important;
+  z-index: 2147483000 !important;
+  isolation: isolate !important;
+  contain: layout style !important;
+  color-scheme: dark !important;
+}
+
+#bst-ai-subtitle-host[hidden] {
+  display: none !important;
+}

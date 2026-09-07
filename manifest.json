@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Bili 全片字幕",
+  "version": "1.3.0",
+  "description": "提前识别 B 站整段音频、统一翻译，播放时显示双语字幕。支持分 P 和合集批量预加载。",
+  "minimum_chrome_version": "116",
+  "icons": {"16":"icons/icon16.png","32":"icons/icon32.png","48":"icons/icon48.png","128":"icons/icon128.png"},
+  "permissions": ["storage", "offscreen", "activeTab", "declarativeNetRequestWithHostAccess"],
+  "host_permissions": [
+    "https://www.bilibili.com/*",
+    "https://api.bilibili.com/*",
+    "https://*.bilivideo.com/*",
+    "https://*.bilivideo.cn/*",
+    "https://*.bilivideo.net/*",
+    "https://*.acgvideo.com/*",
+    "https://*.hdslb.com/*",
+    "https://api.siliconflow.cn/*"
+  ],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": { "service_worker": "src/background.js", "type": "module" },
+  "action": { "default_popup": "popup.html", "default_title": "Bili 全片字幕", "default_icon":{"16":"icons/icon16.png","32":"icons/icon32.png"} },
+  "options_page": "options.html",
+  "content_scripts": [{
+    "matches": ["https://www.bilibili.com/*"],
+    "js": ["src/content.js"],
+    "css": ["styles/content.css"],
+    "run_at": "document_idle"
+  }],
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'self'" }
+}

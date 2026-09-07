@@ -1,0 +1,12 @@
+{
+  "name": "bilibili-subtitle-transfer",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "description": "Bilibili whole-video transcription and translated subtitles, Chrome MV3 extension",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check.mjs",
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package.ps1"
+  }
+}
