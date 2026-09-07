@@ -268,6 +268,64 @@ try {
   assert.deepEqual(await worker.evaluate(async()=> (await chrome.storage.local.get('settings')).settings),savedBeforeDisplay);
   assert.equal(asrCalls,3);assert.equal(translationCalls,3);
   console.log('Subtitle transparency: live background only, keyboard endpoints, options save/sync, reload, uncached video and reset verified without ASR or translation requests.');
+  const timelineFixture={bvid,cid:11,title:'Timeline regression',targetLanguage:'简体中文',timing:'precise',cues:[
+    {start:1,end:3,text:'第一句',source:'First'},
+    {start:6,end:9,text:'第二句',source:'Second'},
+    {start:6.5,end:7.5,text:'重叠句',source:'Overlap'},
+    {start:12,end:16,text:'最后一句',source:'Last'},
+  ]};
+  const replaceTrack=async value=>{
+    await options.evaluate(async value=>{
+      const {putTrack}=await import('./src/shared/cache.js');
+      const {loadSettings}=await import('./src/shared/settings.js');
+      await putTrack(value,await loadSettings());
+    },value);
+    await videoPage.getByRole('button',{name:'重新读取',exact:true}).click();
+    await videoPage.waitForFunction(()=>!document.querySelector('#bst-ai-subtitle-host').shadowRoot.querySelector('.status').textContent.includes('读取当前'));
+  };
+  await replaceTrack(timelineFixture);
+  const seek=async(seconds,expected)=>{
+    await videoPage.evaluate(seconds=>new Promise(resolve=>{
+      const video=document.querySelector('video');
+      video.addEventListener('seeked',resolve,{once:true});
+      video.currentTime=seconds;
+    }),seconds);
+    // Check immediately after seeked, with no wait for periodic timeupdate or playback.
+    assert.equal(await videoPage.locator('.translation').textContent(),expected);
+    assert.equal(await videoPage.locator('.captions').isVisible(),Boolean(expected));
+  };
+  await seek(13,'最后一句');await seek(2,'第一句');await seek(4,'');await seek(7,'第二句\n重叠句');await seek(9,'');
+  await videoPage.evaluate(()=>document.querySelector('video').playbackRate=2);
+  await seek(12.1,'最后一句');await seek(1.1,'第一句');
+  await videoPage.evaluate(()=>document.querySelector('video').play());
+  await seek(6.1,'第二句');
+  await videoPage.evaluate(()=>document.querySelector('video').pause());
+  for(let i=0;i<6;i++) await videoPage.getByRole('button',{name:'字幕提前 0.5 秒',exact:true}).click();
+  await videoPage.waitForFunction(()=>document.querySelector('#bst-ai-subtitle-host').shadowRoot.querySelector('.hint').textContent.includes('本集已保存'));
+  assert.equal((await popup.evaluate(bvid=>chrome.runtime.sendMessage({type:'GET_SUBTITLE_DELAY',bvid,cid:11}),bvid)).data.delay,-3);
+  assert.equal((await popup.evaluate(bvid=>chrome.runtime.sendMessage({type:'GET_SUBTITLE_DELAY',bvid,cid:12}),bvid)).data.delay,0);
+  await seek(4,'第二句\n重叠句');
+  await videoPage.evaluate(()=>{globalThis.testOverlay=document.querySelector('#bst-ai-subtitle-host');history.pushState({},'',location.pathname+'?t=4&start_progress=4000');});
+  await videoPage.waitForTimeout(1100);
+  assert.equal(await videoPage.evaluate(()=>document.querySelector('#bst-ai-subtitle-host')===globalThis.testOverlay),true,'Timestamp-only URL updates must preserve the player and calibration');
+  await seek(10,'最后一句');
+  await videoPage.reload();
+  await videoPage.waitForFunction(()=>document.querySelector('#bst-ai-subtitle-host')?.shadowRoot.querySelector('.stepper output')?.textContent==='-3.0 s');
+  await videoPage.evaluate(async data=>{
+    const video=document.querySelector('video');
+    video.src=URL.createObjectURL(new Blob([Uint8Array.from(atob(data),c=>c.charCodeAt(0))],{type:'audio/wav'}));
+    await new Promise(resolve=>video.addEventListener('loadedmetadata',resolve,{once:true}));
+  },wav.toString('base64'));
+  await seek(4,'第二句\n重叠句');
+  await videoPage.getByRole('button',{name:'字幕显示设置',exact:true}).click();
+  await videoPage.screenshot({path:path.join(artifacts,'player-delay.png')});
+  await videoPage.getByRole('button',{name:'恢复显示默认值',exact:true}).click();
+  await videoPage.waitForFunction(()=>document.querySelector('#bst-ai-subtitle-host').shadowRoot.querySelector('.hint').textContent.includes('本集已保存'));
+  assert.equal((await popup.evaluate(bvid=>chrome.runtime.sendMessage({type:'GET_SUBTITLE_DELAY',bvid,cid:11}),bvid)).data.delay,0);
+  assert.equal(asrCalls,3);assert.equal(translationCalls,3);
+  const {settings:trackDisplay,translationPending,...cachedTrack}=track;
+  await replaceTrack(cachedTrack);
+  console.log('Forward/backward seeks, gaps, overlaps, paused/2x playback, per-P calibration, URL parameter changes, refresh and reset verified without provider calls.');
   await videoPage.evaluate(()=>{document.querySelector('video').currentTime=17.99;});
   await videoPage.evaluate(()=>{history.pushState({},'',location.pathname+'?p=2');});
   await videoPage.waitForFunction(()=>!document.querySelector('#bst-ai-subtitle-host') || document.querySelector('#bst-ai-subtitle-host').shadowRoot.querySelector('.captions').hidden);

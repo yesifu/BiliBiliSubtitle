@@ -75,6 +75,7 @@
     context: null, track: null, cues: [], maxEnds: [], loading: false, error: "",
     video: null, player: null, host: null, ui: null, unbind: null,
     enabled: true, delay: 0, fontOverride: null, adPlaying: false,
+    delayRevision: 0, delayPending: false, delayHint: "字幕慢点 −，字幕快点 +；按本集保存。",
     backgroundTransparency: 24, displayRevision: 0, displayPending: false,
     displayHint: "100% 全透明，自动保存。",
     raf: 0, mutationTimer: 0, settingsTimer: 0, poll: 0,
@@ -128,7 +129,15 @@
   }
 
   function currentRequest(generation, url) {
-    return !state.destroyed && generation === state.generation && url === location.href;
+    return !state.destroyed && generation === state.generation && videoIdentity(url) === videoIdentity(location.href);
+  }
+
+  function videoIdentity(value) {
+    try {
+      const url = new URL(value);
+      const id = url.pathname.match(/^\/video\/([^/]+)/)?.[1];
+      return `${url.origin}/${id}?p=${Math.max(1, parseInt(url.searchParams.get("p"), 10) || 1)}`;
+    } catch { return ""; }
   }
 
   function clearTrack() {
@@ -141,6 +150,13 @@
 
   async function navigate() {
     const url = location.href;
+    // Seeking can change t/start_progress or tracking parameters without changing the video.
+    if (state.context && videoIdentity(url) === videoIdentity(state.url)) {
+      state.url = url;
+      render();
+      syncAnimation();
+      return;
+    }
     const generation = ++state.generation;
     ++state.trackRequest;
     state.url = url;
@@ -148,6 +164,9 @@
     state.error = "";
     state.loading = isVideoUrl(url);
     state.delay = 0;
+    ++state.delayRevision;
+    state.delayPending = false;
+    state.delayHint = "字幕慢点 −，字幕快点 +；按本集保存。";
     state.fontOverride = null;
     clearTrack();
     detachPlayer();
@@ -162,6 +181,8 @@
       state.autoVisit = '';
       void reportAutoVisit();
       refreshAdState();
+      await loadSubtitleDelay();
+      if (!currentRequest(generation, url)) return;
       await loadTrack();
     } catch (error) {
       if (!currentRequest(generation, url)) return;
@@ -286,7 +307,9 @@
       () => adjustDelay(-0.5), () => adjustDelay(0.5));
     const font = stepper("字体大小", "缩小字幕字体", "放大字幕字体",
       () => adjustFont(-2), () => adjustFont(2));
-    panel.append(element("p", "hint", "延迟正值让字幕晚出现；延迟和字号仅用于本页。"));
+    const delayHint = element("p", "hint");
+    delayHint.setAttribute("role", "status");
+    panel.append(delayHint);
     const transparencyRow = element("div", "row transparency-row");
     const transparencyLabel = element("label", "row-label", "背景透明度");
     transparencyLabel.htmlFor = "bst-background-transparency";
@@ -308,7 +331,7 @@
     panel.append(transparencyRow, transparencyHint);
     const footer = element("div", "footer");
     const reset = button("恢复显示默认值", "text-button", () => {
-      state.delay = 0;
+      adjustDelay(-state.delay);
       state.fontOverride = null;
       previewTransparency(24);
       void saveTransparency();
@@ -348,7 +371,7 @@
     player.append(host);
     state.player = player;
     state.host = host;
-    state.ui = { surface, captions, translated, source, toggle, toggleStatus, settingsToggle, panel, status, delay, font, transparency, transparencyOutput, transparencyHint };
+    state.ui = { surface, captions, translated, source, toggle, toggleStatus, settingsToggle, panel, status, delay, delayHint, font, transparency, transparencyOutput, transparencyHint };
     state.lastCaptionKey = "";
     state.lastStatus = "";
     applyPresentation();
@@ -411,9 +434,36 @@
   }
 
   function adjustDelay(amount) {
+    if (!state.context) return;
     state.delay = Math.round(clamp(state.delay + amount, -30, 30, 0) * 2) / 2;
+    const revision = ++state.delayRevision;
+    state.delayPending = true;
+    state.delayHint = "正在保存本集延迟…";
     state.lastCaptionKey = "";
     render();
+    void request({type:"SET_SUBTITLE_DELAY",url:location.href,bvid:state.context.bvid,cid:state.context.cid,value:state.delay}).then(() => {
+      if (state.destroyed || revision !== state.delayRevision) return;
+      state.delayPending = false;
+      state.delayHint = "字幕慢点 −，字幕快点 +；本集已保存。";
+      updateControls();
+    }).catch(() => {
+      if (state.destroyed || revision !== state.delayRevision) return;
+      state.delayPending = false;
+      state.delayHint = "延迟保存失败，请重新调整重试。";
+      updateControls();
+    });
+  }
+
+  async function loadSubtitleDelay() {
+    if (!state.context || state.destroyed || state.delayPending) return;
+    const revision = ++state.delayRevision;
+    try {
+      const settings = await request({type:"GET_SUBTITLE_DELAY",bvid:state.context.bvid,cid:state.context.cid});
+      if (state.destroyed || revision !== state.delayRevision) return;
+      state.delay = clamp(settings.delay, -30, 30, 0);
+      state.lastCaptionKey = "";
+      render();
+    } catch { /* Retain the current calibration when the extension is unavailable. */ }
   }
 
   function adjustFont(amount) {
@@ -442,8 +492,9 @@
     ui.toggle.setAttribute("aria-label", `${state.enabled ? "隐藏" : "显示"} AI 字幕，${badge}`);
     ui.toggle.title = status;
     ui.delay.output.textContent = `${state.delay > 0 ? "+" : ""}${state.delay.toFixed(1)} s`;
-    ui.delay.minus.disabled = state.delay <= -30;
-    ui.delay.plus.disabled = state.delay >= 30;
+    ui.delay.minus.disabled = !state.context || state.delay <= -30;
+    ui.delay.plus.disabled = !state.context || state.delay >= 30;
+    ui.delayHint.textContent = state.delayHint;
     ui.font.output.textContent = `${fontSize()} px`;
     ui.font.minus.disabled = fontSize() <= 14;
     ui.font.plus.disabled = fontSize() >= 56;
@@ -481,7 +532,7 @@
     const { video, ui } = state;
     if (!ui) return;
     if (!video || !video.isConnected || !state.enabled || state.adPlaying || !state.cues.length ||
-        state.url !== location.href || video.ended || video.readyState < 1 ||
+        videoIdentity(state.url) !== videoIdentity(location.href) || video.ended || video.readyState < 1 || video.seeking ||
         (Number.isFinite(video.duration) && video.currentTime >= video.duration)) {
       if (!ui.captions.hidden) hideCaptions();
       return;
@@ -512,8 +563,8 @@
   }
 
   function shouldAnimate() {
-    return !state.destroyed && state.video?.isConnected && !state.video.paused && !state.video.ended &&
-      state.enabled && state.cues.length > 0 && !state.adPlaying && !document.hidden && state.url === location.href;
+    return !state.destroyed && state.video?.isConnected && !state.video.paused && !state.video.ended && !state.video.seeking &&
+      state.enabled && state.cues.length > 0 && !state.adPlaying && !document.hidden && videoIdentity(state.url) === videoIdentity(location.href);
   }
 
   function tick() {
@@ -578,10 +629,13 @@
     state.video = video;
     mountPlayer(player);
     const onTimeline = () => { renderCaptions(); syncAnimation(); };
+    const onSeeking = () => { hideCaptions(); stopAnimation(); };
+    const onSeeked = () => { state.lastCaptionKey = ""; onMedia(); };
     const onMedia = () => { refreshAdState(); render(); syncAnimation(); void reportAutoVisit(); };
     const onEmpty = () => { hideCaptions(); stopAnimation(); };
     const bindings = [
-      ["timeupdate", onTimeline], ["seeking", onTimeline], ["seeked", onTimeline],
+      ["timeupdate", onTimeline], ["seeking", onSeeking], ["seeked", onSeeked],
+      ["ratechange", onTimeline],
       ["play", onMedia], ["playing", onMedia], ["pause", onMedia], ["ended", onMedia],
       ["loadedmetadata", onMedia], ["durationchange", onMedia], ["loadeddata", onMedia],
       ["emptied", onEmpty], ["loadstart", onEmpty], ["error", onEmpty],
@@ -638,6 +692,8 @@
       void loadTrack();
     } else if (message?.type === "SETTINGS_UPDATED") scheduleSettingsReload();
     else if (message?.type === "DISPLAY_SETTINGS_UPDATED") void loadDisplaySettings();
+    else if (message?.type === "SUBTITLE_DELAY_UPDATED" && state.context &&
+      message.bvid === state.context.bvid && String(message.cid) === String(state.context.cid)) void loadSubtitleDelay();
     return false;
   }
 

@@ -5,6 +5,7 @@ import { exportSubtitles } from './shared/subtitles.js';
 import { selectItems } from './shared/selection.js';
 import { createAutoQueue } from './shared/auto-queue.js';
 import { parseVideoUrl } from './shared/bilibili.js';
+import { getSubtitleDelay, setSubtitleDelay } from './shared/display.js';
 
 let creatingOffscreen;
 let starting=false;
@@ -12,6 +13,7 @@ let cancellationRequested=false;
 let pendingJobId=null;
 let statusWrite=Promise.resolve();
 let displayWrite=Promise.resolve();
+let delayWrite=Promise.resolve();
 const contextCache=new Map();
 const OFFSCREEN_URL=chrome.runtime.getURL('offscreen.html');
 const automatic=createAutoQueue({
@@ -149,6 +151,19 @@ async function trackWithDisplay(bvid,cid) {
 
 async function handle(message,sender) {
   switch(message.type) {
+    case 'GET_SUBTITLE_DELAY':
+      return {delay:await getSubtitleDelay(message.bvid,message.cid)};
+    case 'SET_SUBTITLE_DELAY': {
+      if(sender.frameId!==0 || !sender.tab?.id || !sameVideo(sender.url,message.url)) throw new Error('无效的视频页面。');
+      delayWrite=delayWrite.catch(()=>{}).then(async()=>{
+        const info=await context(sender.url);
+        if(info.bvid!==message.bvid || info.cid!==Number(message.cid)) throw new Error('字幕与当前视频不匹配。');
+        const delay=await setSubtitleDelay(info.bvid,info.cid,message.value);
+        await notifyTabs({type:'SUBTITLE_DELAY_UPDATED',bvid:info.bvid,cid:info.cid},sender.tab.id);
+        return {delay};
+      });
+      return delayWrite;
+    }
     case 'GET_DISPLAY_SETTINGS':
       return {backgroundTransparency:(await loadSettings()).backgroundTransparency};
     case 'SET_BACKGROUND_TRANSPARENCY': {
